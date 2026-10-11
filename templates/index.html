@@ -1,0 +1,52 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estação Meteorológica</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Estação Meteorológica</h1>
+        <p>Monitoramento ambiental</p>
+    </header>
+
+    <main>
+        <div id="status">Carregando medições...</div>
+
+        <section class="cards">
+            <article class="card">
+                <h2>Temperatura</h2>
+                <p><span id="temperatura">--</span> <span class="unit">°C</span></p>
+            </article>
+
+            <article class="card">
+                <h2>Umidade do ar</h2>
+                <p><span id="umidade">--</span> <span class="unit">%</span></p>
+            </article>
+
+            <article class="card">
+                <h2>Pressão atmosférica</h2>
+                <p><span id="pressao">--</span> <span class="unit">hPa</span></p>
+            </article>
+
+            <article class="card">
+                <h2>Luminosidade</h2>
+                <p><span id="luminosidade">--</span> <span class="unit">ADC</span></p>
+            </article>
+
+            <article class="card">
+                <h2>Sensor de gás</h2>
+                <p><span id="gas">--</span> <span class="unit">ADC</span></p>
+            </article>
+        </section>
+    </main>
+
+    <footer>
+        Projeto de Estação Meteorológica com ESP32
+    </footer>
+</body>
+</html>
