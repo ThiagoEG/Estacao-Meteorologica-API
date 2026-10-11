@@ -41,4 +41,4 @@ async function atualizarDados() {
 }
 
 atualizarDados();
-setInterval(atualizarDados, 5000);
+setInterval(atualizarDados, 2000);
