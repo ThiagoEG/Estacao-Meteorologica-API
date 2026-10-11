@@ -18,7 +18,7 @@ dados = {
 
 @app.route("/")
 def inicio():
-    return jsonify({"mensagem": "API da Estacao Meteorologica funcionando!"})
+    return jsonify({"mensagem": "API FUNCIONADO."})
 
 @app.route("/dados", methods=["GET", "POST"])
 def gerenciar_dados():
