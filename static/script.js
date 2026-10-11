@@ -3,7 +3,9 @@ async function atualizarDados() {
     const status = document.getElementById("status");
 
     try {
-        const resposta = await fetch("/dados");
+        const resposta = await fetch("/dados", {
+    cache: "no-store"
+});
 
         if (!resposta.ok) {
             throw new Error("Erro HTTP: " + resposta.status);
