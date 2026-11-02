@@ -1,52 +1,98 @@
 
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>Estação Meteorológica</title>
+
+    <!-- Arquivo responsável pela aparência da dashboard -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <!-- Arquivo responsável por buscar e atualizar os dados da API -->
     <script src="{{ url_for('static', filename='script.js') }}" defer></script>
 </head>
+
 <body>
+
+    <!-- Cabeçalho da dashboard -->
     <header>
         <h1>Estação Meteorológica</h1>
         <p>Monitoramento ambiental</p>
     </header>
 
     <main>
+
+        <!-- Mensagem de status da comunicação com a API -->
         <div id="status">Carregando medições</div>
 
+        <!-- Cartões que apresentam os dados dos sensores -->
         <section class="cards">
+
+            <!-- Cartão de temperatura -->
             <article class="card">
                 <h2>Temperatura</h2>
-                <p><span id="temperatura">--</span> <span class="unit">°C</span></p>
+                <p>
+                    <span id="temperatura">--</span>
+                    <span class="unit">°C</span>
+                </p>
             </article>
 
+            <!-- Cartão de umidade relativa do ar -->
             <article class="card">
                 <h2>Umidade do ar</h2>
-                <p><span id="umidade">--</span> <span class="unit">%</span></p>
+                <p>
+                    <span id="umidade">--</span>
+                    <span class="unit">%</span>
+                </p>
             </article>
 
+            <!-- Cartão de pressão atmosférica -->
             <article class="card">
                 <h2>Pressão atmosférica</h2>
-                <p><span id="pressao">--</span> <span class="unit">hPa</span></p>
+                <p>
+                    <span id="pressao">--</span>
+                    <span class="unit">hPa</span>
+                </p>
             </article>
 
+            <!-- Cartão de luminosidade -->
+            <!-- O LDR utiliza a saída digital DO, que retorna 0 ou 1 -->
             <article class="card">
                 <h2>Luminosidade</h2>
-                <p><span id="luminosidade">--</span> <span class="unit">ADC</span></p>
+                <p>
+                    <span id="luminosidade">--</span>
+                    <span class="unit">DO</span>
+                </p>
             </article>
 
+            <!-- Cartão de qualidade do ar -->
             <article class="card">
-                <h2>Sensor de gás</h2>
-                <p><span id="gas">--</span> <span class="unit">ADC</span></p>
+                <h2>Qualidade do ar (MQ-135)</h2>
+
+                <!-- Valor médio das leituras analógicas do sensor -->
+                <p>
+                    <span id="adc_mq135">--</span>
+                    <span class="unit">ADC</span>
+                </p>
+
+                <!-- Classificação da qualidade do ar -->
+                <p>
+                    <span class="unit">Classificação:</span>
+                    <span id="qualidade_ar">--</span>
+                </p>
             </article>
+
         </section>
+
     </main>
 
+    <!-- Rodapé -->
     <footer>
         Estação Meteorológica ESP32
     </footer>
+
 </body>
 </html>
