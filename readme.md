@@ -198,8 +198,6 @@ A frequência de consulta da dashboard é independente da frequência de leitura
 
    python app.py
 
-Por padrão, o código Flask fornecido para desenvolvimento local utiliza a porta `5000`. A disponibilidade local da dashboard e das rotas depende da configuração do ambiente.
-
 ## Limitações atuais
 
 - Os dados são mantidos em memória pela aplicação Flask. Não há banco de dados nesta versão; após uma reinicialização do processo, os valores podem voltar a ficam congelados até a ESP32 enviar novas leituras.
@@ -208,8 +206,5 @@ Por padrão, o código Flask fornecido para desenvolvimento local utiliza a port
 
 ## Possíveis melhorias futuras
 
-- Adicionar validação de tipos e limites aos dados recebidos.
-- Implementar autenticação para proteger o recebimento de dados.
-- Armazenar o histórico das medições em um banco de dados.
 - Disponibilizar gráficos de evolução das variáveis ambientais.
 - Utilizar uma leitura analógica do sensor de luminosidade para obter medidas mais detalhadas, com calibração apropriada.
