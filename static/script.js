@@ -30,9 +30,7 @@ async function atualizarDados() {
         document.getElementById("gas").textContent =
             dados.gas ?? "--";
 
-        status.textContent =
-            "Última atualização: " +
-            new Date().toLocaleTimeString("pt-BR");
+
 
     } catch (erro) {
         status.textContent =
