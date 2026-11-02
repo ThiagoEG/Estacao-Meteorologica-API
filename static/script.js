@@ -22,7 +22,7 @@ async function atualizarDados() {
         document.getElementById("pressao").textContent =
             dados.pressao == null
                 ? "--"
-                : (dados.pressao / 100).toFixed(2);
+                : Number(dados.pressao).toFixed(2)
 
         document.getElementById("luminosidade").textContent =
             dados.luminosidade ?? "--";
@@ -43,4 +43,4 @@ async function atualizarDados() {
 }
 
 atualizarDados();
-setInterval(atualizarDados, 2000);
+setInterval(atualizarDados, 1000);
