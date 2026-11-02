@@ -19,10 +19,10 @@ async function atualizarDados() {
         document.getElementById("umidade").textContent =
             dados.umidade ?? "--";
 
-        document.getElementById("pressao").textContent =
-            dados.pressao == null
-                ? "--"
-                : Number(dados.pressao).toFixed(2)
+document.getElementById("pressao").textContent =
+    dados.pressao == null
+        ? "--"
+        : `${Number(dados.pressao).toFixed(2)} hPa`;
 
         document.getElementById("luminosidade").textContent =
             dados.luminosidade ?? "--";
