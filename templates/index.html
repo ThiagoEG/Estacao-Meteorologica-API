@@ -11,7 +11,10 @@
     <!-- Arquivo responsável pela aparência da dashboard -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-    <!-- Arquivo responsável por buscar e atualizar os dados da API -->
+    <!-- Biblioteca Chart.js para construção dos gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+
+    <!-- Código responsável pela atualização da dashboard -->
     <script src="{{ url_for('static', filename='script.js') }}" defer></script>
 </head>
 
@@ -86,6 +89,49 @@
             </article>
 
         </section>
+        <!-- ================================================== -->
+<!-- GRAFICOS HISTORICOS DOS SENSORES                   -->
+<!-- ================================================== -->
+
+<section class="cards">
+
+    <!-- Gráfico de temperatura -->
+    <article class="card">
+        <h2>Temperatura ao longo do tempo</h2>
+
+        <div class="chart-container">
+            <canvas id="graficoTemperatura"></canvas>
+        </div>
+    </article>
+
+    <!-- Gráfico de umidade -->
+    <article class="card">
+        <h2>Umidade do ar ao longo do tempo</h2>
+
+        <div class="chart-container">
+            <canvas id="graficoUmidade"></canvas>
+        </div>
+    </article>
+
+    <!-- Gráfico de pressão -->
+    <article class="card">
+        <h2>Pressão atmosférica ao longo do tempo</h2>
+
+        <div class="chart-container">
+            <canvas id="graficoPressao"></canvas>
+        </div>
+    </article>
+
+    <!-- Gráfico do MQ-135 -->
+    <article class="card">
+        <h2>Qualidade do ar - MQ-135</h2>
+
+        <div class="chart-container">
+            <canvas id="graficoMQ135"></canvas>
+        </div>
+    </article>
+
+</section>
 
     </main>
 
