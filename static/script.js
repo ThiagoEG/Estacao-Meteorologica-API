@@ -1,21 +1,28 @@
 
 // ======================================================
-// CONFIGURACOES DOS GRAFICOS
+// CONFIGURACOES GERAIS
 // ======================================================
 
 // Quantidade máxima de medições mantidas em cada gráfico.
-// Ao receber a 61ª amostra, a mais antiga será removida.
 const LIMITE_PONTOS = 60;
 
 
+// Localização aproximada da estação meteorológica.
+//
+// Coordenadas de referência da região central de São Paulo.
+// Não representam o endereço exato do equipamento.
+const LOCALIZACAO_ESTACAO = {
+    latitude: -23.5505,
+    longitude: -46.6333,
+    zoom: 12
+};
+
+
 // Guarda o horário da última medição registrada.
-// É utilizado para evitar adicionar o mesmo envio
-// várias vezes ao histórico.
 let ultimaAtualizacaoRecebida = null;
 
 
 // Armazena temporariamente as medições recebidas pela dashboard.
-// Os dados ficam na memória do navegador e não são permanentes.
 const historico = {
     horarios: [],
     temperatura: [],
@@ -29,8 +36,7 @@ const historico = {
 const graficos = {};
 
 
-// Impede que uma nova consulta comece antes que a anterior
-// tenha terminado.
+// Impede consultas simultâneas à API.
 let consultaEmAndamento = false;
 
 
@@ -38,31 +44,19 @@ let consultaEmAndamento = false;
 // CRIACAO DOS GRAFICOS
 // ======================================================
 
-// Cria um gráfico de linhas utilizando Chart.js.
-//
-// id: identificador do canvas no HTML.
-// titulo: nome da informação apresentada.
-// unidade: unidade utilizada no eixo vertical.
-// faixa: valores de referência para estabilizar o eixo Y.
+function criarGrafico(id, titulo, unidade, faixa, unidadeValor) {
 
-function criarGrafico(id, titulo, unidade, faixa) {
-
-    // Localiza no HTML o canvas onde o gráfico será desenhado.
     const canvas = document.getElementById(id);
 
-    // Verifica se o elemento existe antes de criar o gráfico.
     if (!canvas) {
         console.error("Canvas não encontrado:", id);
         return null;
     }
 
-    // Cria e retorna uma nova instância do Chart.js.
     return new Chart(canvas, {
 
-        // Define o gráfico como gráfico de linhas.
         type: "line",
 
-        // Configura os dados inicialmente vazios.
         data: {
             labels: [],
 
@@ -70,20 +64,12 @@ function criarGrafico(id, titulo, unidade, faixa) {
                 label: titulo,
                 data: [],
 
-                // Cor da linha e dos pontos.
                 borderColor: "#67e8f9",
                 backgroundColor: "rgba(103, 232, 249, 0.12)",
-
-                // Espessura da linha.
                 borderWidth: 2,
-
-                // Suaviza visualmente a linha.
                 tension: 0.25,
-
-                // Mantém a linha sem preenchimento abaixo.
                 fill: false,
 
-                // Aparência dos pontos de medição.
                 pointRadius: 2,
                 pointHoverRadius: 5,
                 pointBackgroundColor: "#67e8f9",
@@ -91,17 +77,12 @@ function criarGrafico(id, titulo, unidade, faixa) {
             }]
         },
 
-        // Configurações de apresentação e comportamento.
         options: {
 
             responsive: true,
             maintainAspectRatio: false,
-
-            // Evita animações a cada atualização.
             animation: false,
 
-            // Permite visualizar informações relacionadas
-            // ao mesmo instante ao passar o mouse pelo gráfico.
             interaction: {
                 mode: "index",
                 intersect: false
@@ -125,19 +106,18 @@ function criarGrafico(id, titulo, unidade, faixa) {
                     borderColor: "rgba(255, 255, 255, 0.14)",
                     borderWidth: 1,
 
-                    // Mostra os valores do sensor com duas casas decimais.
+                    // Exibe os valores com duas casas decimais.
                     callbacks: {
                         label: function(context) {
 
                             const valor = Number(context.parsed.y);
 
-                            return `${context.dataset.label}: ${valor.toFixed(2)} ${unidade}`;
+                            return `${context.dataset.label}: ${valor.toFixed(2)} ${unidadeValor}`;
                         }
                     }
                 }
             },
 
-            // Configuração dos eixos.
             scales: {
 
                 // Eixo horizontal: horário das medições.
@@ -161,9 +141,11 @@ function criarGrafico(id, titulo, unidade, faixa) {
                 // Eixo vertical: valor do sensor.
                 y: {
 
-                    // Mantém uma faixa de referência estável.
-                    // O Chart.js expande os limites caso os dados
-                    // ultrapassem os valores sugeridos.
+                    // Faixas de referência para evitar oscilações
+                    // visuais exageradas em pequenas variações.
+                    //
+                    // Os limites sugeridos podem ser ampliados
+                    // automaticamente se os dados saírem da faixa.
                     suggestedMin: faixa.min,
                     suggestedMax: faixa.max,
 
@@ -194,14 +176,12 @@ function criarGrafico(id, titulo, unidade, faixa) {
 
 function inicializarGraficos() {
 
-    // Verifica se a biblioteca Chart.js foi carregada.
     if (typeof Chart === "undefined") {
         console.error("A biblioteca Chart.js não foi carregada.");
         return false;
     }
 
-    // Gráfico de temperatura.
-    // Referência inicial: 0 a 50 °C.
+    // Temperatura: referência de 0 a 50 °C.
     graficos.temperatura = criarGrafico(
         "graficoTemperatura",
         "Temperatura",
@@ -209,11 +189,11 @@ function inicializarGraficos() {
         {
             min: 0,
             max: 50
-        }
+        },
+        "°C"
     );
 
-    // Gráfico de umidade relativa do ar.
-    // Faixa física: 0 a 100%.
+    // Umidade: faixa física de 0 a 100%.
     graficos.umidade = criarGrafico(
         "graficoUmidade",
         "Umidade",
@@ -221,11 +201,11 @@ function inicializarGraficos() {
         {
             min: 0,
             max: 100
-        }
+        },
+        "%"
     );
 
-    // Gráfico de pressão atmosférica.
-    // Referência inicial: 800 a 1100 hPa.
+    // Pressão: referência de 800 a 1100 hPa.
     graficos.pressao = criarGrafico(
         "graficoPressao",
         "Pressão",
@@ -233,19 +213,21 @@ function inicializarGraficos() {
         {
             min: 800,
             max: 1100
-        }
+        },
+        "hPa"
     );
 
-    // Gráfico das leituras ADC do MQ-135.
-    // Referência inicial: 0 a 1000.
+    // MQ-135: utiliza toda a faixa do ADC da ESP32.
+    // Isso permite visualizar picos acima de 1500.
     graficos.adc_mq135 = criarGrafico(
         "graficoMQ135",
         "ADC MQ-135",
         "Valor ADC",
         {
             min: 0,
-            max: 1000
-        }
+            max: 4095
+        },
+        "ADC"
     );
 
     return true;
@@ -253,21 +235,100 @@ function inicializarGraficos() {
 
 
 // ======================================================
-// REGISTRO DE UMA NOVA MEDICAO NOS GRAFICOS
+// INICIALIZACAO DO MAPA
 // ======================================================
 
-// Recebe os dados da API e adiciona uma nova amostra
-// ao histórico dos gráficos.
-//
-// O horário da API identifica uma nova medição.
-// Assim, consultas GET repetidas não criam pontos duplicados.
+function inicializarMapa() {
+
+    const elementoMapa = document.getElementById("mapa-estacao");
+    const statusMapa = document.getElementById("mapa-status");
+
+    // Verifica se o elemento do mapa existe no HTML.
+    if (!elementoMapa) {
+        console.error("Elemento do mapa não encontrado.");
+        return;
+    }
+
+    // Verifica se a biblioteca Leaflet foi carregada.
+    if (typeof L === "undefined") {
+
+        console.error("A biblioteca Leaflet não foi carregada.");
+
+        if (statusMapa) {
+            statusMapa.textContent =
+                "Não foi possível carregar o mapa. Verifique sua conexão com a internet.";
+        }
+
+        return;
+    }
+
+
+    // Organiza as coordenadas no formato esperado pelo Leaflet.
+    const coordenadas = [
+        LOCALIZACAO_ESTACAO.latitude,
+        LOCALIZACAO_ESTACAO.longitude
+    ];
+
+
+    // Cria o mapa e define sua posição inicial.
+    const mapa = L.map("mapa-estacao", {
+        scrollWheelZoom: false
+    }).setView(
+        coordenadas,
+        LOCALIZACAO_ESTACAO.zoom
+    );
+
+
+    // Adiciona os mapas do OpenStreetMap.
+    //
+    // Os mapas são carregados pela internet conforme
+    // o usuário visualiza ou navega pela região.
+    //
+    // A atribuição aos colaboradores do OpenStreetMap
+    // fica visível no canto inferior do mapa.
+
+    L.tileLayer(
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 19,
+
+            attribution:
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }
+    ).addTo(mapa);
+
+
+    // Cria o marcador da estação meteorológica.
+    const marcador = L.marker(coordenadas).addTo(mapa);
+
+
+    // Configura a informação apresentada ao clicar no marcador.
+    marcador.bindPopup(
+        "<strong>Estação Meteorológica ESP32</strong><br>" +
+        "Localização aproximada — São Paulo/SP"
+    );
+
+
+    // Apresenta uma mensagem abaixo do mapa.
+    if (statusMapa) {
+
+        statusMapa.textContent =
+            "Marcador em localização aproximada na região central de São Paulo - SP.";
+    }
+
+    console.log("Mapa inicializado com sucesso.");
+}
+
+
+// ======================================================
+// REGISTRO DE UMA NOVA MEDICAO NOS GRAFICOS
+// ======================================================
 
 function registrarMedicao(dados) {
 
     const horario = dados.ultima_atualizacao;
 
-    // Se a API ainda não forneceu um horário,
-    // não registra a amostra.
+    // Sem horário, não é possível identificar uma nova medição.
     if (!horario) {
         return;
     }
@@ -282,6 +343,7 @@ function registrarMedicao(dados) {
 
     // Verifica se o horário recebido é válido.
     if (Number.isNaN(data.getTime())) {
+
         console.error("Horário inválido recebido da API:", horario);
         return;
     }
@@ -291,7 +353,6 @@ function registrarMedicao(dados) {
     // VALIDACAO DOS VALORES DOS SENSORES
     // --------------------------------------------------
 
-    // Campos numéricos utilizados nos gráficos.
     const chaves = [
         "temperatura",
         "umidade",
@@ -320,7 +381,7 @@ function registrarMedicao(dados) {
             return;
         }
 
-        // Armazena cada valor com duas casas decimais.
+        // Mantém os valores numéricos com duas casas decimais.
         valores[chave] = Number(Number(valor).toFixed(2));
     }
 
@@ -357,9 +418,7 @@ function registrarMedicao(dados) {
     // LIMITAR A QUANTIDADE DE MEDICOES
     // --------------------------------------------------
 
-    // Quando o limite de 60 amostras for ultrapassado,
-    // remove o registro mais antigo de todos os históricos.
-
+    // Ao ultrapassar 60 amostras, remove a mais antiga.
     if (historico.horarios.length > LIMITE_PONTOS) {
 
         historico.horarios.shift();
@@ -374,24 +433,19 @@ function registrarMedicao(dados) {
     // ATUALIZAR OS GRAFICOS
     // --------------------------------------------------
 
-    // Percorre os quatro gráficos e atualiza seus dados.
-
     Object.keys(graficos).forEach(chave => {
 
         const grafico = graficos[chave];
 
-        // Ignora gráficos que não foram inicializados.
         if (!grafico) {
             return;
         }
 
-        // Atualiza os horários do eixo horizontal.
         grafico.data.labels = [...historico.horarios];
 
-        // Atualiza os valores do eixo vertical.
         grafico.data.datasets[0].data = [...historico[chave]];
 
-        // Atualiza o gráfico sem animações.
+        // Atualiza sem animações.
         grafico.update("none");
     });
 }
@@ -402,9 +456,7 @@ function registrarMedicao(dados) {
 // ======================================================
 
 // Localiza um elemento HTML e atualiza seu conteúdo.
-//
-// casasDecimais determina quantas casas serão exibidas.
-// Quando não for informado, o valor será apresentado normalmente.
+// Casas decimais opcionais para valores numéricos.
 
 function atualizarElemento(id, valor, casasDecimais = null) {
 
@@ -415,14 +467,14 @@ function atualizarElemento(id, valor, casasDecimais = null) {
         return;
     }
 
-    // Verifica se o valor está disponível.
+    // Apresenta "--" quando não há dados.
     if (valor === null || valor === undefined) {
 
         elemento.textContent = "--";
         return;
     }
 
-    // Formata valores numéricos quando solicitado.
+    // Formata os valores numéricos.
     if (casasDecimais !== null) {
 
         const numero = Number(valor);
@@ -468,8 +520,7 @@ function atualizarStatus(tipo, mensagem) {
 
 async function atualizarDados() {
 
-    // Evita consultas simultâneas caso uma requisição
-    // demore mais de um segundo para terminar.
+    // Evita consultas simultâneas.
     if (consultaEmAndamento) {
         return;
     }
@@ -486,12 +537,10 @@ async function atualizarDados() {
             cache: "no-store"
         });
 
-        // Verifica se o servidor retornou uma resposta válida.
         if (!resposta.ok) {
             throw new Error("Erro HTTP: " + resposta.status);
         }
 
-        // Converte o JSON recebido para um objeto JavaScript.
         const dados = await resposta.json();
 
 
@@ -520,8 +569,7 @@ async function atualizarDados() {
             2
         );
 
-        // Luminosidade digital do LDR.
-        // Continua sendo 0 ou 1, sem casas decimais.
+        // Luminosidade digital do LDR: mantém 0 ou 1.
         atualizarElemento(
             "luminosidade",
             dados.luminosidade
@@ -545,8 +593,6 @@ async function atualizarDados() {
         // 3. REGISTRO DA MEDICAO NOS GRAFICOS
         // --------------------------------------------------
 
-        // Adiciona um ponto somente quando a API informar
-        // que uma nova medição foi recebida.
         registrarMedicao(dados);
 
 
@@ -562,19 +608,16 @@ async function atualizarDados() {
 
     } catch (erro) {
 
-        // Apresenta uma mensagem caso a consulta falhe.
         atualizarStatus(
             "erro",
             "Falha ao carregar os dados. Tentando novamente..."
         );
 
-        // Registra os detalhes do erro no console.
         console.error("Erro ao consultar a API:", erro);
 
     } finally {
 
-        // Libera a próxima consulta, independentemente
-        // de a operação ter sido concluída com sucesso ou erro.
+        // Libera a próxima consulta.
         consultaEmAndamento = false;
     }
 }
@@ -584,10 +627,13 @@ async function atualizarDados() {
 // INICIALIZACAO DO SISTEMA
 // ======================================================
 
-// Primeiro cria os gráficos nos elementos canvas do HTML.
+// Inicializa os quatro gráficos.
 inicializarGraficos();
 
-// Em seguida, realiza a primeira consulta à API.
+// Inicializa o mapa da estação.
+inicializarMapa();
+
+// Realiza a primeira consulta à API.
 atualizarDados();
 
 // Continua consultando a API a cada segundo.

@@ -8,11 +8,27 @@
 
     <title>Estação Meteorológica</title>
 
+    <!-- Biblioteca Leaflet responsável pela exibição do mapa -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="anonymous"
+    >
+
     <!-- Arquivo responsável pela aparência da dashboard -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <!-- Biblioteca Chart.js para construção dos gráficos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+
+    <!-- Biblioteca Leaflet para o mapa interativo -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"
+        defer
+    ></script>
 
     <!-- Código responsável pela atualização da dashboard -->
     <script src="{{ url_for('static', filename='script.js') }}" defer></script>
@@ -31,57 +47,68 @@
         <!-- Mensagem de status da comunicação com a API -->
         <div id="status">Carregando medições</div>
 
-        <!-- Cartões que apresentam os dados dos sensores -->
+        <!-- ================================================== -->
+        <!-- CARTOES DOS SENSORES                               -->
+        <!-- ================================================== -->
+
         <section class="cards">
 
             <!-- Cartão de temperatura -->
             <article class="card">
                 <h2>Temperatura</h2>
+
                 <p>
                     <span id="temperatura">--</span>
                     <span class="unit">°C</span>
                 </p>
             </article>
 
+
             <!-- Cartão de umidade relativa do ar -->
             <article class="card">
                 <h2>Umidade do ar</h2>
+
                 <p>
                     <span id="umidade">--</span>
                     <span class="unit">%</span>
                 </p>
             </article>
 
+
             <!-- Cartão de pressão atmosférica -->
             <article class="card">
                 <h2>Pressão atmosférica</h2>
+
                 <p>
                     <span id="pressao">--</span>
                     <span class="unit">hPa</span>
                 </p>
             </article>
 
+
             <!-- Cartão de luminosidade -->
             <!-- O LDR utiliza a saída digital DO, que retorna 0 ou 1 -->
             <article class="card">
                 <h2>Luminosidade</h2>
+
                 <p>
                     <span id="luminosidade">--</span>
                     <span class="unit">DO</span>
                 </p>
             </article>
 
+
             <!-- Cartão de qualidade do ar -->
             <article class="card">
                 <h2>Qualidade do ar</h2>
 
-                <!-- Valor médio das leituras analógicas do sensor -->
+                <!-- Média das leituras analógicas do MQ-135 -->
                 <p>
                     <span id="adc_mq135">--</span>
                     <span class="unit">ADC</span>
                 </p>
 
-                <!-- Classificação da qualidade do ar -->
+                <!-- Classificação experimental da qualidade do ar -->
                 <p>
                     <span class="unit">Classificação:</span>
                     <span id="qualidade_ar">--</span>
@@ -89,51 +116,89 @@
             </article>
 
         </section>
+
+
         <!-- ================================================== -->
-<!-- GRAFICOS HISTORICOS DOS SENSORES                   -->
-<!-- ================================================== -->
+        <!-- GRAFICOS HISTORICOS DOS SENSORES                   -->
+        <!-- ================================================== -->
 
-<section class="cards">
+        <section class="cards">
 
-    <!-- Gráfico de temperatura -->
-    <article class="card">
-        <h2>Temperatura ao longo do tempo</h2>
+            <!-- Gráfico de temperatura -->
+            <article class="card">
+                <h2>Temperatura ao longo do tempo</h2>
 
-        <div class="chart-container">
-            <canvas id="graficoTemperatura"></canvas>
-        </div>
-    </article>
+                <div class="chart-container">
+                    <canvas id="graficoTemperatura"></canvas>
+                </div>
+            </article>
 
-    <!-- Gráfico de umidade -->
-    <article class="card">
-        <h2>Umidade do ar ao longo do tempo</h2>
 
-        <div class="chart-container">
-            <canvas id="graficoUmidade"></canvas>
-        </div>
-    </article>
+            <!-- Gráfico de umidade -->
+            <article class="card">
+                <h2>Umidade do ar ao longo do tempo</h2>
 
-    <!-- Gráfico de pressão -->
-    <article class="card">
-        <h2>Pressão atmosférica ao longo do tempo</h2>
+                <div class="chart-container">
+                    <canvas id="graficoUmidade"></canvas>
+                </div>
+            </article>
 
-        <div class="chart-container">
-            <canvas id="graficoPressao"></canvas>
-        </div>
-    </article>
 
-    <!-- Gráfico do MQ-135 -->
-    <article class="card">
-        <h2>Qualidade do ar - MQ-135</h2>
+            <!-- Gráfico de pressão -->
+            <article class="card">
+                <h2>Pressão atmosférica ao longo do tempo</h2>
 
-        <div class="chart-container">
-            <canvas id="graficoMQ135"></canvas>
-        </div>
-    </article>
+                <div class="chart-container">
+                    <canvas id="graficoPressao"></canvas>
+                </div>
+            </article>
 
-</section>
+
+            <!-- Gráfico do MQ-135 -->
+            <article class="card">
+                <h2>Qualidade do ar - MQ-135</h2>
+
+                <div class="chart-container">
+                    <canvas id="graficoMQ135"></canvas>
+                </div>
+            </article>
+
+        </section>
+
+
+        <!-- ================================================== -->
+        <!-- LOCALIZACAO DA ESTACAO                             -->
+        <!-- ================================================== -->
+
+        <section class="mapa-section">
+
+            <article class="card mapa-card">
+
+                <h2>Localização da estação</h2>
+
+                <p class="mapa-descricao">
+                    Localização aproximada na região central
+                    de São Paulo - SP.
+                </p>
+
+                <!-- Elemento onde o Leaflet construirá o mapa -->
+                <div
+                    id="mapa-estacao"
+                    role="region"
+                    aria-label="Mapa com a localização aproximada da estação meteorológica"
+                ></div>
+
+                <!-- Mensagem de carregamento ou situação do mapa -->
+                <p id="mapa-status" class="mapa-status">
+                    Carregando mapa...
+                </p>
+
+            </article>
+
+        </section>
 
     </main>
+
 
     <!-- Rodapé -->
     <footer>

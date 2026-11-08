@@ -213,13 +213,6 @@ main {
    CORES E ICONES DOS CARTOES DOS SENSORES
    ========================================================== */
 
-/* 
-   As regras abaixo se aplicam somente à primeira seção
-   de cartões, que contém os cinco sensores.
-   
-   Os cartões dos gráficos possuem estilos próprios.
-*/
-
 main > .cards:first-of-type > .card:nth-child(1) {
     --c: #fb923c;
     --icone: "🌡️";
@@ -317,8 +310,6 @@ main > .cards:first-of-type > .card:nth-child(5) {
     border-radius: 999px;
 }
 
-/* Classes opcionais aplicáveis via JavaScript */
-
 #qualidade_ar.boa {
     color: var(--ok);
     background: rgba(52, 211, 153, 0.15);
@@ -338,36 +329,96 @@ main > .cards:first-of-type > .card:nth-child(5) {
    AREA DOS GRAFICOS
    ========================================================== */
 
-/*
-   Identifica a segunda seção de cartões do HTML.
-   
-   Organiza os quatro gráficos em duas colunas,
-   mantendo o mesmo estilo visual dos cartões dos sensores.
-*/
+/* Organiza os quatro gráficos em duas colunas. */
 
 main > .cards + .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 24px;
 }
 
-/* Cor de destaque padrão dos cartões dos gráficos */
+/* Cor de destaque padrão dos cartões dos gráficos. */
 
 main > .cards + .cards .card {
     --c: #67e8f9;
 }
 
-/* Remove os ícones dos títulos dos gráficos */
+/* Remove os ícones decorativos dos títulos dos gráficos. */
 
 main > .cards + .cards .card h2::before {
     display: none;
 }
 
-/* Define o espaço reservado para cada gráfico */
+/* Espaço reservado para cada gráfico. */
 
 .chart-container {
     position: relative;
     width: 100%;
     height: 250px;
+}
+
+/* ==========================================================
+   MAPA DA LOCALIZACAO DA ESTACAO
+   ========================================================== */
+
+.mapa-section {
+    margin-top: 24px;
+}
+
+/* Cor de destaque do cartão do mapa. */
+
+.mapa-card {
+    --c: #67e8f9;
+}
+
+/* Remove ícone decorativo do título do mapa. */
+
+.mapa-card h2::before {
+    display: none;
+}
+
+/* Texto que explica a localização aproximada. */
+
+.mapa-descricao {
+    display: block;
+    position: relative;
+    margin-bottom: 16px;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+/* Elemento onde o Leaflet apresenta o mapa. */
+
+#mapa-estacao {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 360px;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    background: #111827;
+}
+
+/* Mantém a tipografia do mapa coerente com o dashboard. */
+
+.leaflet-container {
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+/* Mantém os créditos cartográficos legíveis. */
+
+.leaflet-control-attribution {
+    font-size: 10px;
+}
+
+/* Mensagem abaixo do mapa. */
+
+.mapa-status {
+    display: block;
+    position: relative;
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 0.8rem;
 }
 
 /* ---------- Rodapé ---------- */
@@ -391,16 +442,22 @@ footer {
         padding-top: 36px;
     }
 
-    /* Cartões dos sensores em uma coluna */
+    /* Cartões dos sensores em uma coluna. */
 
     .cards {
         grid-template-columns: 1fr;
     }
 
-    /* Gráficos também em uma coluna */
+    /* Gráficos em uma coluna. */
 
     main > .cards + .cards {
         grid-template-columns: 1fr;
+    }
+
+    /* Ajusta a altura do mapa para telas menores. */
+
+    #mapa-estacao {
+        height: 300px;
     }
 
     .card p:first-of-type span:first-child {
