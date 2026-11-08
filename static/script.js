@@ -43,8 +43,9 @@ let consultaEmAndamento = false;
 // id: identificador do canvas no HTML.
 // titulo: nome da informação apresentada.
 // unidade: unidade utilizada no eixo vertical.
+// faixa: valores de referência para estabilizar o eixo Y.
 
-function criarGrafico(id, titulo, unidade) {
+function criarGrafico(id, titulo, unidade, faixa) {
 
     // Localiza no HTML o canvas onde o gráfico será desenhado.
     const canvas = document.getElementById(id);
@@ -93,7 +94,6 @@ function criarGrafico(id, titulo, unidade) {
         // Configurações de apresentação e comportamento.
         options: {
 
-            // Ajusta o gráfico ao tamanho do seu contêiner.
             responsive: true,
             maintainAspectRatio: false,
 
@@ -107,7 +107,6 @@ function criarGrafico(id, titulo, unidade) {
                 intersect: false
             },
 
-            // Configura legenda e informações ao passar o mouse.
             plugins: {
 
                 legend: {
@@ -124,7 +123,17 @@ function criarGrafico(id, titulo, unidade) {
                     titleColor: "#ffffff",
                     bodyColor: "#f1f5ff",
                     borderColor: "rgba(255, 255, 255, 0.14)",
-                    borderWidth: 1
+                    borderWidth: 1,
+
+                    // Mostra os valores do sensor com duas casas decimais.
+                    callbacks: {
+                        label: function(context) {
+
+                            const valor = Number(context.parsed.y);
+
+                            return `${context.dataset.label}: ${valor.toFixed(2)} ${unidade}`;
+                        }
+                    }
                 }
             },
 
@@ -151,6 +160,13 @@ function criarGrafico(id, titulo, unidade) {
 
                 // Eixo vertical: valor do sensor.
                 y: {
+
+                    // Mantém uma faixa de referência estável.
+                    // O Chart.js expande os limites caso os dados
+                    // ultrapassem os valores sugeridos.
+                    suggestedMin: faixa.min,
+                    suggestedMax: faixa.max,
+
                     title: {
                         display: true,
                         text: unidade,
@@ -158,7 +174,8 @@ function criarGrafico(id, titulo, unidade) {
                     },
 
                     ticks: {
-                        color: "#94a3c4"
+                        color: "#94a3c4",
+                        maxTicksLimit: 6
                     },
 
                     grid: {
@@ -175,8 +192,6 @@ function criarGrafico(id, titulo, unidade) {
 // INICIALIZACAO DOS QUATRO GRAFICOS
 // ======================================================
 
-// Cria os gráficos depois que o HTML estiver disponível.
-
 function inicializarGraficos() {
 
     // Verifica se a biblioteca Chart.js foi carregada.
@@ -185,32 +200,52 @@ function inicializarGraficos() {
         return false;
     }
 
-    // Gráfico de temperatura em graus Celsius.
+    // Gráfico de temperatura.
+    // Referência inicial: 0 a 50 °C.
     graficos.temperatura = criarGrafico(
         "graficoTemperatura",
         "Temperatura",
-        "Temperatura (°C)"
+        "Temperatura (°C)",
+        {
+            min: 0,
+            max: 50
+        }
     );
 
     // Gráfico de umidade relativa do ar.
+    // Faixa física: 0 a 100%.
     graficos.umidade = criarGrafico(
         "graficoUmidade",
         "Umidade",
-        "Umidade (%)"
+        "Umidade (%)",
+        {
+            min: 0,
+            max: 100
+        }
     );
 
     // Gráfico de pressão atmosférica.
+    // Referência inicial: 800 a 1100 hPa.
     graficos.pressao = criarGrafico(
         "graficoPressao",
         "Pressão",
-        "Pressão (hPa)"
+        "Pressão (hPa)",
+        {
+            min: 800,
+            max: 1100
+        }
     );
 
     // Gráfico das leituras ADC do MQ-135.
+    // Referência inicial: 0 a 1000.
     graficos.adc_mq135 = criarGrafico(
         "graficoMQ135",
         "ADC MQ-135",
-        "Valor ADC"
+        "Valor ADC",
+        {
+            min: 0,
+            max: 1000
+        }
     );
 
     return true;
@@ -256,10 +291,7 @@ function registrarMedicao(dados) {
     // VALIDACAO DOS VALORES DOS SENSORES
     // --------------------------------------------------
 
-    // Converte os valores para números e verifica
-    // se todos os campos necessários para os gráficos
-    // possuem valores válidos.
-
+    // Campos numéricos utilizados nos gráficos.
     const chaves = [
         "temperatura",
         "umidade",
@@ -288,7 +320,8 @@ function registrarMedicao(dados) {
             return;
         }
 
-        valores[chave] = Number(valor);
+        // Armazena cada valor com duas casas decimais.
+        valores[chave] = Number(Number(valor).toFixed(2));
     }
 
 
@@ -370,8 +403,8 @@ function registrarMedicao(dados) {
 
 // Localiza um elemento HTML e atualiza seu conteúdo.
 //
-// Quando o valor não estiver disponível, apresenta "--".
-// O parâmetro casasDecimais permite formatar valores numéricos.
+// casasDecimais determina quantas casas serão exibidas.
+// Quando não for informado, o valor será apresentado normalmente.
 
 function atualizarElemento(id, valor, casasDecimais = null) {
 
@@ -408,9 +441,6 @@ function atualizarElemento(id, valor, casasDecimais = null) {
 // ======================================================
 // ATUALIZACAO VISUAL DO STATUS
 // ======================================================
-
-// Atualiza a mensagem e a aparência do indicador de conexão.
-// As classes utilizadas já estão definidas no style.css.
 
 function atualizarStatus(tipo, mensagem) {
 
@@ -469,18 +499,21 @@ async function atualizarDados() {
         // 2. ATUALIZACAO DOS CARTOES
         // --------------------------------------------------
 
+        // Temperatura: duas casas decimais.
         atualizarElemento(
             "temperatura",
-            dados.temperatura
+            dados.temperatura,
+            2
         );
 
+        // Umidade: duas casas decimais.
         atualizarElemento(
             "umidade",
-            dados.umidade
+            dados.umidade,
+            2
         );
 
-        // Pressão com duas casas decimais.
-        // A unidade hPa já está definida no HTML.
+        // Pressão: duas casas decimais.
         atualizarElemento(
             "pressao",
             dados.pressao,
@@ -488,16 +521,17 @@ async function atualizarDados() {
         );
 
         // Luminosidade digital do LDR.
+        // Continua sendo 0 ou 1, sem casas decimais.
         atualizarElemento(
             "luminosidade",
             dados.luminosidade
         );
 
-        // ADC do MQ-135 com uma casa decimal.
+        // ADC do MQ-135: duas casas decimais.
         atualizarElemento(
             "adc_mq135",
             dados.adc_mq135,
-            1
+            2
         );
 
         // Classificação experimental da qualidade do ar.
