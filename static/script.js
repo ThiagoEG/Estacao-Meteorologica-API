@@ -8,9 +8,6 @@ const LIMITE_PONTOS = 60;
 
 
 // Localização aproximada da estação meteorológica.
-//
-// Coordenadas de referência da região central de São Paulo.
-// Não representam o endereço exato do equipamento.
 const LOCALIZACAO_ESTACAO = {
     latitude: -23.5505,
     longitude: -46.6333,
@@ -18,11 +15,21 @@ const LOCALIZACAO_ESTACAO = {
 };
 
 
+// Classificações aceitas para o indicador experimental.
+const CLASSIFICACOES_QUALIDADE_AR = [
+    "EXCELENTE",
+    "BOA",
+    "MODERADA",
+    "RUIM",
+    "PESSIMA"
+];
+
+
 // Guarda o horário da última medição registrada.
 let ultimaAtualizacaoRecebida = null;
 
 
-// Armazena temporariamente as medições recebidas pela dashboard.
+// Armazena temporariamente as medições recebidas.
 const historico = {
     horarios: [],
     temperatura: [],
@@ -38,6 +45,10 @@ const graficos = {};
 
 // Impede consultas simultâneas à API.
 let consultaEmAndamento = false;
+
+
+// Referência ao elemento visual de alerta.
+let elementoAlertaAr = null;
 
 
 // ======================================================
@@ -106,7 +117,6 @@ function criarGrafico(id, titulo, unidade, faixa, unidadeValor) {
                     borderColor: "rgba(255, 255, 255, 0.14)",
                     borderWidth: 1,
 
-                    // Exibe os valores com duas casas decimais.
                     callbacks: {
                         label: function(context) {
 
@@ -120,7 +130,6 @@ function criarGrafico(id, titulo, unidade, faixa, unidadeValor) {
 
             scales: {
 
-                // Eixo horizontal: horário das medições.
                 x: {
                     title: {
                         display: true,
@@ -138,14 +147,7 @@ function criarGrafico(id, titulo, unidade, faixa, unidadeValor) {
                     }
                 },
 
-                // Eixo vertical: valor do sensor.
                 y: {
-
-                    // Faixas de referência para evitar oscilações
-                    // visuais exageradas em pequenas variações.
-                    //
-                    // Os limites sugeridos podem ser ampliados
-                    // automaticamente se os dados saírem da faixa.
                     suggestedMin: faixa.min,
                     suggestedMax: faixa.max,
 
@@ -181,7 +183,7 @@ function inicializarGraficos() {
         return false;
     }
 
-    // Temperatura: referência de 0 a 50 °C.
+    // Temperatura: 0 a 50 °C.
     graficos.temperatura = criarGrafico(
         "graficoTemperatura",
         "Temperatura",
@@ -193,7 +195,7 @@ function inicializarGraficos() {
         "°C"
     );
 
-    // Umidade: faixa física de 0 a 100%.
+    // Umidade: 0 a 100%.
     graficos.umidade = criarGrafico(
         "graficoUmidade",
         "Umidade",
@@ -205,7 +207,7 @@ function inicializarGraficos() {
         "%"
     );
 
-    // Pressão: referência de 800 a 1100 hPa.
+    // Pressão: 800 a 1100 hPa.
     graficos.pressao = criarGrafico(
         "graficoPressao",
         "Pressão",
@@ -217,8 +219,7 @@ function inicializarGraficos() {
         "hPa"
     );
 
-    // MQ-135: utiliza toda a faixa do ADC da ESP32.
-    // Isso permite visualizar picos acima de 1500.
+    // MQ-135: escala de referência do ADC da ESP32.
     graficos.adc_mq135 = criarGrafico(
         "graficoMQ135",
         "ADC MQ-135",
@@ -243,13 +244,11 @@ function inicializarMapa() {
     const elementoMapa = document.getElementById("mapa-estacao");
     const statusMapa = document.getElementById("mapa-status");
 
-    // Verifica se o elemento do mapa existe no HTML.
     if (!elementoMapa) {
         console.error("Elemento do mapa não encontrado.");
         return;
     }
 
-    // Verifica se a biblioteca Leaflet foi carregada.
     if (typeof L === "undefined") {
 
         console.error("A biblioteca Leaflet não foi carregada.");
@@ -262,15 +261,11 @@ function inicializarMapa() {
         return;
     }
 
-
-    // Organiza as coordenadas no formato esperado pelo Leaflet.
     const coordenadas = [
         LOCALIZACAO_ESTACAO.latitude,
         LOCALIZACAO_ESTACAO.longitude
     ];
 
-
-    // Cria o mapa e define sua posição inicial.
     const mapa = L.map("mapa-estacao", {
         scrollWheelZoom: false
     }).setView(
@@ -278,15 +273,7 @@ function inicializarMapa() {
         LOCALIZACAO_ESTACAO.zoom
     );
 
-
     // Adiciona os mapas do OpenStreetMap.
-    //
-    // Os mapas são carregados pela internet conforme
-    // o usuário visualiza ou navega pela região.
-    //
-    // A atribuição aos colaboradores do OpenStreetMap
-    // fica visível no canto inferior do mapa.
-
     L.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
@@ -297,26 +284,152 @@ function inicializarMapa() {
         }
     ).addTo(mapa);
 
-
-    // Cria o marcador da estação meteorológica.
+    // Cria o marcador da estação.
     const marcador = L.marker(coordenadas).addTo(mapa);
 
-
-    // Configura a informação apresentada ao clicar no marcador.
     marcador.bindPopup(
         "<strong>Estação Meteorológica ESP32</strong><br>" +
         "Localização aproximada — São Paulo/SP"
     );
 
-
-    // Apresenta uma mensagem abaixo do mapa.
     if (statusMapa) {
-
         statusMapa.textContent =
             "Marcador em localização aproximada na região central de São Paulo - SP.";
     }
 
     console.log("Mapa inicializado com sucesso.");
+}
+
+
+// ======================================================
+// INICIALIZACAO DO ELEMENTO DE ALERTA
+// ======================================================
+
+// Cria automaticamente a área de alerta logo abaixo
+// do indicador de conexão com a API.
+//
+// Assim, não precisamos adicionar um novo elemento no HTML.
+
+function inicializarAlertaQualidadeAr() {
+
+    const status = document.getElementById("status");
+
+    if (!status) {
+        console.error("Elemento de status não encontrado.");
+        return;
+    }
+
+    const alerta = document.createElement("div");
+
+    alerta.id = "alerta-ar";
+    alerta.className = "alerta-ar";
+
+    // Informações de acessibilidade.
+    alerta.setAttribute("role", "status");
+    alerta.setAttribute("aria-live", "polite");
+
+    // Inicialmente, o alerta fica escondido.
+    alerta.hidden = true;
+
+    // Insere a mensagem logo depois do status da API.
+    status.insertAdjacentElement("afterend", alerta);
+
+    elementoAlertaAr = alerta;
+}
+
+
+// ======================================================
+// ATUALIZACAO DO ALERTA DE QUALIDADE DO AR
+// ======================================================
+
+// Recebe a classificação informada pela API.
+//
+// Atualiza a cor do indicador da qualidade do ar
+// e apresenta mensagens quando necessário.
+
+function atualizarAlertaQualidadeAr(qualidade) {
+
+    const campoQualidade = document.getElementById("qualidade_ar");
+
+    // Verifica se os elementos existem.
+    if (!campoQualidade || !elementoAlertaAr) {
+        return;
+    }
+
+    // Normaliza o texto recebido.
+    const classificacao = String(qualidade ?? "")
+        .trim()
+        .toUpperCase();
+
+
+    // --------------------------------------------------
+    // 1. ATUALIZAR A COR DO INDICADOR
+    // --------------------------------------------------
+
+    // Remove as classificações anteriores.
+    campoQualidade.classList.remove(
+        "excelente",
+        "boa",
+        "moderada",
+        "ruim",
+        "pessima"
+    );
+
+    // Aplica uma classe somente quando a classificação
+    // recebida estiver entre as opções permitidas.
+    if (CLASSIFICACOES_QUALIDADE_AR.includes(classificacao)) {
+
+        campoQualidade.classList.add(
+            classificacao.toLowerCase()
+        );
+    }
+
+
+    // --------------------------------------------------
+    // 2. DEFINIR AS MENSAGENS DE ALERTA
+    // --------------------------------------------------
+
+    // As mensagens são baseadas nas faixas experimentais
+    // utilizadas pelo projeto.
+
+    const mensagens = {
+
+        MODERADA:
+            "Atenção: o indicador experimental do MQ-135 está na faixa MODERADA. Continue acompanhando as medições.",
+
+        RUIM:
+            "Alerta: o indicador experimental do MQ-135 está na faixa RUIM. Verifique as condições do ambiente.",
+
+        PESSIMA:
+            "Alerta: o indicador experimental do MQ-135 está na faixa PÉSSIMA. Verifique o ambiente e acompanhe as leituras."
+    };
+
+
+    // Recupera a mensagem correspondente.
+    const mensagem = mensagens[classificacao];
+
+
+    // --------------------------------------------------
+    // 3. EXIBIR OU ESCONDER O ALERTA
+    // --------------------------------------------------
+
+    // EXCELENTE e BOA não apresentam mensagem de alerta.
+    if (!mensagem) {
+
+        elementoAlertaAr.hidden = true;
+        elementoAlertaAr.textContent = "";
+        elementoAlertaAr.className = "alerta-ar";
+
+        return;
+    }
+
+    // Aplica a mensagem e a aparência correspondente.
+    elementoAlertaAr.textContent = mensagem;
+
+    elementoAlertaAr.className =
+        "alerta-ar " + classificacao.toLowerCase();
+
+    elementoAlertaAr.hidden = false;
 }
 
 
@@ -328,7 +441,6 @@ function registrarMedicao(dados) {
 
     const horario = dados.ultima_atualizacao;
 
-    // Sem horário, não é possível identificar uma nova medição.
     if (!horario) {
         return;
     }
@@ -338,10 +450,8 @@ function registrarMedicao(dados) {
         return;
     }
 
-    // Converte o horário recebido em um objeto Date.
     const data = new Date(horario);
 
-    // Verifica se o horário recebido é válido.
     if (Number.isNaN(data.getTime())) {
 
         console.error("Horário inválido recebido da API:", horario);
@@ -381,17 +491,15 @@ function registrarMedicao(dados) {
             return;
         }
 
-        // Mantém os valores numéricos com duas casas decimais.
         valores[chave] = Number(Number(valor).toFixed(2));
     }
 
 
     // Atualiza a referência da última medição registrada.
-    // Isso acontece somente depois de validar os dados.
     ultimaAtualizacaoRecebida = horario;
 
 
-    // Formata o horário para apresentação nos gráficos.
+    // Formata o horário para apresentação.
     const horarioFormatado = data.toLocaleTimeString("pt-BR", {
         hour: "2-digit",
         minute: "2-digit",
@@ -418,7 +526,6 @@ function registrarMedicao(dados) {
     // LIMITAR A QUANTIDADE DE MEDICOES
     // --------------------------------------------------
 
-    // Ao ultrapassar 60 amostras, remove a mais antiga.
     if (historico.horarios.length > LIMITE_PONTOS) {
 
         historico.horarios.shift();
@@ -445,7 +552,6 @@ function registrarMedicao(dados) {
 
         grafico.data.datasets[0].data = [...historico[chave]];
 
-        // Atualiza sem animações.
         grafico.update("none");
     });
 }
@@ -454,9 +560,6 @@ function registrarMedicao(dados) {
 // ======================================================
 // FUNCAO AUXILIAR PARA ATUALIZAR OS CARTOES
 // ======================================================
-
-// Localiza um elemento HTML e atualiza seu conteúdo.
-// Casas decimais opcionais para valores numéricos.
 
 function atualizarElemento(id, valor, casasDecimais = null) {
 
@@ -467,14 +570,12 @@ function atualizarElemento(id, valor, casasDecimais = null) {
         return;
     }
 
-    // Apresenta "--" quando não há dados.
     if (valor === null || valor === undefined) {
 
         elemento.textContent = "--";
         return;
     }
 
-    // Formata os valores numéricos.
     if (casasDecimais !== null) {
 
         const numero = Number(valor);
@@ -491,7 +592,7 @@ function atualizarElemento(id, valor, casasDecimais = null) {
 
 
 // ======================================================
-// ATUALIZACAO VISUAL DO STATUS
+// ATUALIZACAO VISUAL DO STATUS DA API
 // ======================================================
 
 function atualizarStatus(tipo, mensagem) {
@@ -504,10 +605,8 @@ function atualizarStatus(tipo, mensagem) {
 
     status.textContent = mensagem;
 
-    // Remove os estados anteriores.
     status.classList.remove("ok", "erro");
 
-    // Aplica o novo estado.
     if (tipo) {
         status.classList.add(tipo);
     }
@@ -548,41 +647,36 @@ async function atualizarDados() {
         // 2. ATUALIZACAO DOS CARTOES
         // --------------------------------------------------
 
-        // Temperatura: duas casas decimais.
         atualizarElemento(
             "temperatura",
             dados.temperatura,
             2
         );
 
-        // Umidade: duas casas decimais.
         atualizarElemento(
             "umidade",
             dados.umidade,
             2
         );
 
-        // Pressão: duas casas decimais.
         atualizarElemento(
             "pressao",
             dados.pressao,
             2
         );
 
-        // Luminosidade digital do LDR: mantém 0 ou 1.
+        // O LDR permanece como leitura digital 0 ou 1.
         atualizarElemento(
             "luminosidade",
             dados.luminosidade
         );
 
-        // ADC do MQ-135: duas casas decimais.
         atualizarElemento(
             "adc_mq135",
             dados.adc_mq135,
             2
         );
 
-        // Classificação experimental da qualidade do ar.
         atualizarElemento(
             "qualidade_ar",
             dados.qualidade_ar
@@ -590,14 +684,21 @@ async function atualizarDados() {
 
 
         // --------------------------------------------------
-        // 3. REGISTRO DA MEDICAO NOS GRAFICOS
+        // 3. ATUALIZACAO DO ALERTA
+        // --------------------------------------------------
+
+        atualizarAlertaQualidadeAr(dados.qualidade_ar);
+
+
+        // --------------------------------------------------
+        // 4. REGISTRO DA MEDICAO NOS GRAFICOS
         // --------------------------------------------------
 
         registrarMedicao(dados);
 
 
         // --------------------------------------------------
-        // 4. ATUALIZACAO DO STATUS
+        // 5. ATUALIZACAO DO STATUS
         // --------------------------------------------------
 
         atualizarStatus(
@@ -617,7 +718,6 @@ async function atualizarDados() {
 
     } finally {
 
-        // Libera a próxima consulta.
         consultaEmAndamento = false;
     }
 }
@@ -627,11 +727,14 @@ async function atualizarDados() {
 // INICIALIZACAO DO SISTEMA
 // ======================================================
 
-// Inicializa os quatro gráficos.
+// Inicializa os gráficos.
 inicializarGraficos();
 
-// Inicializa o mapa da estação.
+// Inicializa o mapa.
 inicializarMapa();
+
+// Cria a área de alerta da qualidade do ar.
+inicializarAlertaQualidadeAr();
 
 // Realiza a primeira consulta à API.
 atualizarDados();

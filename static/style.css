@@ -1,7 +1,6 @@
 
 /* ==========================================================
    Estação Meteorológica ESP32 - versão estilizada
-   Glassmorphism, fundo animado e cor própria para cada sensor
    ========================================================== */
 
 :root {
@@ -35,7 +34,7 @@ body {
     overflow-x: hidden;
 }
 
-/* ---------- Fundo com manchas de luz animadas ---------- */
+/* ---------- Fundo animado ---------- */
 
 body::before,
 body::after {
@@ -104,7 +103,7 @@ main {
     padding: 20px 20px 50px;
 }
 
-/* ---------- Status ---------- */
+/* ---------- Status da API ---------- */
 
 #status {
     width: fit-content;
@@ -147,10 +146,75 @@ main {
     animation: none;
 }
 
-@keyframes pulsar {
+/* ==========================================================
+   ALERTA VISUAL DA QUALIDADE DO AR
+   ========================================================== */
 
-    0%,
-    100% {
+.alerta-ar {
+    position: relative;
+    width: min(100%, 800px);
+    margin: -16px auto 30px;
+    padding: 15px 20px;
+    border: 1px solid;
+    border-radius: 14px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.alerta-ar[hidden] {
+    display: none;
+}
+
+/* Ícone de atenção */
+
+.alerta-ar::before {
+    display: inline-block;
+    margin-right: 10px;
+}
+
+/* Classificação moderada */
+
+.alerta-ar.moderada {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.35);
+}
+
+.alerta-ar.moderada::before {
+    content: "⚠️";
+}
+
+/* Classificação ruim */
+
+.alerta-ar.ruim {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.4);
+}
+
+.alerta-ar.ruim::before {
+    content: "🚨";
+}
+
+/* Classificação péssima */
+
+.alerta-ar.pessima {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.18);
+    border-color: rgba(248, 113, 113, 0.6);
+    box-shadow: 0 0 22px rgba(248, 113, 113, 0.12);
+}
+
+.alerta-ar.pessima::before {
+    content: "🚨";
+}
+
+/* Animação do fundo do status */
+
+@keyframes pulsar {
+    0%, 100% {
         opacity: 1;
     }
 
@@ -170,7 +234,6 @@ main {
 .card {
     --c: #67e8f9;
 
-    /* Cor de destaque padrão do cartão */
     position: relative;
     overflow: hidden;
     padding: 28px 26px;
@@ -182,8 +245,6 @@ main {
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
     transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
-
-/* Brilho colorido no canto do cartão */
 
 .card::before {
     content: "";
@@ -266,7 +327,7 @@ main > .cards:first-of-type > .card:nth-child(5) {
     border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
 }
 
-/* ---------- Valor principal ---------- */
+/* ---------- Valores dos sensores ---------- */
 
 .card p {
     position: relative;
@@ -310,6 +371,9 @@ main > .cards:first-of-type > .card:nth-child(5) {
     border-radius: 999px;
 }
 
+/* Cores das cinco classificações */
+
+#qualidade_ar.excelente,
 #qualidade_ar.boa {
     color: var(--ok);
     background: rgba(52, 211, 153, 0.15);
@@ -320,7 +384,8 @@ main > .cards:first-of-type > .card:nth-child(5) {
     background: rgba(251, 191, 36, 0.15);
 }
 
-#qualidade_ar.ruim {
+#qualidade_ar.ruim,
+#qualidade_ar.pessima {
     color: var(--danger);
     background: rgba(248, 113, 113, 0.15);
 }
@@ -329,26 +394,18 @@ main > .cards:first-of-type > .card:nth-child(5) {
    AREA DOS GRAFICOS
    ========================================================== */
 
-/* Organiza os quatro gráficos em duas colunas. */
-
 main > .cards + .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 24px;
 }
 
-/* Cor de destaque padrão dos cartões dos gráficos. */
-
 main > .cards + .cards .card {
     --c: #67e8f9;
 }
 
-/* Remove os ícones decorativos dos títulos dos gráficos. */
-
 main > .cards + .cards .card h2::before {
     display: none;
 }
-
-/* Espaço reservado para cada gráfico. */
 
 .chart-container {
     position: relative;
@@ -364,19 +421,13 @@ main > .cards + .cards .card h2::before {
     margin-top: 24px;
 }
 
-/* Cor de destaque do cartão do mapa. */
-
 .mapa-card {
     --c: #67e8f9;
 }
 
-/* Remove ícone decorativo do título do mapa. */
-
 .mapa-card h2::before {
     display: none;
 }
-
-/* Texto que explica a localização aproximada. */
 
 .mapa-descricao {
     display: block;
@@ -385,8 +436,6 @@ main > .cards + .cards .card h2::before {
     color: var(--muted);
     font-size: 0.9rem;
 }
-
-/* Elemento onde o Leaflet apresenta o mapa. */
 
 #mapa-estacao {
     position: relative;
@@ -399,19 +448,13 @@ main > .cards + .cards .card h2::before {
     background: #111827;
 }
 
-/* Mantém a tipografia do mapa coerente com o dashboard. */
-
 .leaflet-container {
     font-family: "Segoe UI", system-ui, sans-serif;
 }
 
-/* Mantém os créditos cartográficos legíveis. */
-
 .leaflet-control-attribution {
     font-size: 10px;
 }
-
-/* Mensagem abaixo do mapa. */
 
 .mapa-status {
     display: block;
@@ -442,22 +485,21 @@ footer {
         padding-top: 36px;
     }
 
-    /* Cartões dos sensores em uma coluna. */
-
     .cards {
         grid-template-columns: 1fr;
     }
-
-    /* Gráficos em uma coluna. */
 
     main > .cards + .cards {
         grid-template-columns: 1fr;
     }
 
-    /* Ajusta a altura do mapa para telas menores. */
-
     #mapa-estacao {
         height: 300px;
+    }
+
+    .alerta-ar {
+        font-size: 0.82rem;
+        padding: 13px 15px;
     }
 
     .card p:first-of-type span:first-child {
