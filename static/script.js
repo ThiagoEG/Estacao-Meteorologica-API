@@ -5,6 +5,9 @@
 
 // Quantidade máxima de medições mantidas em cada gráfico.
 const LIMITE_PONTOS = 60;
+// Tempo máximo permitido sem receber uma nova medição.
+// Após 5 segundos, a ESP32 será considerada sem atualização.
+const TEMPO_MAXIMO_SEM_DADOS = 5000;
 
 
 // Localização aproximada da estação meteorológica.
@@ -395,13 +398,13 @@ function atualizarAlertaQualidadeAr(qualidade) {
     const mensagens = {
 
         MODERADA:
-            "Atenção: o indicador experimental do MQ-135 está na faixa MODERADA. Continue acompanhando as medições.",
+            "Atenção: o indicador do MQ-135 está na faixa MODERADA. Continue acompanhando as medições.",
 
         RUIM:
-            "Alerta: o indicador experimental do MQ-135 está na faixa RUIM. Verifique as condições do ambiente.",
+            "Alerta: o indicador do MQ-135 está na faixa RUIM. Verifique as condições do ambiente.",
 
         PESSIMA:
-            "Alerta: o indicador experimental do MQ-135 está na faixa PÉSSIMA. Verifique o ambiente e acompanhe as leituras."
+            "Alerta: o indicador do MQ-135 está na faixa PÉSSIMA. Verifique o ambiente e acompanhe as leituras."
     };
 
 
@@ -611,6 +614,74 @@ function atualizarStatus(tipo, mensagem) {
         status.classList.add(tipo);
     }
 }
+// ======================================================
+// VERIFICACAO DO STATUS DA ESTACAO ESP32
+// ======================================================
+
+function atualizarStatusEstacao(ultimaAtualizacao) {
+
+    // Verifica se a API já recebeu alguma medição.
+    if (!ultimaAtualizacao) {
+
+        atualizarStatus(
+            "erro",
+            "API conectada • aguardando primeira leitura da ESP32"
+        );
+
+        return;
+    }
+
+
+    // Converte o horário recebido da API para uma data.
+    const dataUltimaAtualizacao = new Date(ultimaAtualizacao);
+
+
+    // Verifica se o horário recebido é válido.
+    if (Number.isNaN(dataUltimaAtualizacao.getTime())) {
+
+        atualizarStatus(
+            "erro",
+            "API conectada • horário da última leitura inválido"
+        );
+
+        return;
+    }
+
+
+    // Calcula quanto tempo passou desde a última medição.
+    // O Math.max evita uma idade negativa caso haja
+    // uma pequena diferença entre os relógios.
+    const idadeMs = Math.max(
+        0,
+        Date.now() - dataUltimaAtualizacao.getTime()
+    );
+
+
+    // Se a medição foi recebida nos últimos 5 segundos,
+    // consideramos que a ESP32 está enviando normalmente.
+    if (idadeMs <= TEMPO_MAXIMO_SEM_DADOS) {
+
+        atualizarStatus(
+            "ok",
+            "ESP32 enviando dados • API conectada"
+        );
+
+        return;
+    }
+
+
+    // Caso contrário, calcula há quantos segundos
+    // não recebemos uma nova medição.
+    const segundos = Math.floor(idadeMs / 1000);
+
+
+    // A API continua acessível, mas a estação
+    // não está enviando medições recentes.
+    atualizarStatus(
+        "erro",
+        `API conectada • ESP32 sem atualização há ${segundos}s`
+    );
+}
 
 
 // ======================================================
@@ -697,15 +768,11 @@ async function atualizarDados() {
         registrarMedicao(dados);
 
 
-        // --------------------------------------------------
-        // 5. ATUALIZACAO DO STATUS
-        // --------------------------------------------------
+// --------------------------------------------------
+// 5. ATUALIZACAO DO STATUS
+// --------------------------------------------------
 
-        atualizarStatus(
-            "ok",
-            "Conectado à API"
-        );
-
+atualizarStatusEstacao(dados.ultima_atualizacao);
 
     } catch (erro) {
 
