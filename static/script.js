@@ -618,6 +618,54 @@ function atualizarStatus(tipo, mensagem) {
 // VERIFICACAO DO STATUS DA ESTACAO ESP32
 // ======================================================
 
+// ======================================================
+// FORMATACAO DO TEMPO SEM ATUALIZACAO DA ESP32
+// ======================================================
+
+function formatarTempoSemAtualizacao(tempoMS) {
+
+    const segundos = Math.floor(tempoMS / 1000);
+
+    // Menos de 1 minuto: segundos.
+    if (segundos < 60) {
+
+        return segundos === 1
+            ? "1 segundo"
+            : `${segundos} segundos`;
+    }
+
+    // Menos de 1 hora: minutos.
+    const minutos = Math.floor(segundos / 60);
+
+    if (segundos < 3600) {
+
+        return minutos === 1
+            ? "1 minuto"
+            : `${minutos} minutos`;
+    }
+
+    // Menos de 1 dia: horas.
+    const horas = Math.floor(segundos / 3600);
+
+    if (segundos < 86400) {
+
+        return horas === 1
+            ? "1 hora"
+            : `${horas} horas`;
+    }
+
+    // A partir de 1 dia: dias.
+    const dias = Math.floor(segundos / 86400);
+
+    return dias === 1
+        ? "1 dia"
+        : `${dias} dias`;
+}
+
+// ======================================================
+// VERIFICACAO DO STATUS DA ESTACAO ESP32
+// ======================================================
+
 function atualizarStatusEstacao(ultimaAtualizacao) {
 
     // Verifica se a API já recebeu alguma medição.
@@ -631,10 +679,8 @@ function atualizarStatusEstacao(ultimaAtualizacao) {
         return;
     }
 
-
     // Converte o horário recebido da API para uma data.
     const dataUltimaAtualizacao = new Date(ultimaAtualizacao);
-
 
     // Verifica se o horário recebido é válido.
     if (Number.isNaN(dataUltimaAtualizacao.getTime())) {
@@ -647,19 +693,15 @@ function atualizarStatusEstacao(ultimaAtualizacao) {
         return;
     }
 
-
     // Calcula quanto tempo passou desde a última medição.
-    // O Math.max evita uma idade negativa caso haja
-    // uma pequena diferença entre os relógios.
-    const idadeMs = Math.max(
+    const tempoMS = Math.max(
         0,
         Date.now() - dataUltimaAtualizacao.getTime()
     );
 
-
     // Se a medição foi recebida nos últimos 5 segundos,
     // consideramos que a ESP32 está enviando normalmente.
-    if (idadeMs <= TEMPO_MAXIMO_SEM_DADOS) {
+    if (tempoMS <= TEMPO_MAXIMO_SEM_DADOS) {
 
         atualizarStatus(
             "ok",
@@ -669,17 +711,16 @@ function atualizarStatusEstacao(ultimaAtualizacao) {
         return;
     }
 
-
-    // Caso contrário, calcula há quantos segundos
-    // não recebemos uma nova medição.
-    const segundos = Math.floor(idadeMs / 1000);
-
+    // Converte o tempo decorrido para segundos,
+    // minutos, horas ou dias.
+    const tempoSemAtualizacao =
+        formatarTempoSemAtualizacao(tempoMS);
 
     // A API continua acessível, mas a estação
     // não está enviando medições recentes.
     atualizarStatus(
         "erro",
-        `API conectada • ESP32 sem atualização há ${segundos}s`
+        `API conectada • ESP32 sem atualização há ${tempoSemAtualizacao}`
     );
 }
 

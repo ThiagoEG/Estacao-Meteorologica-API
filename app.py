@@ -1,4 +1,3 @@
-
 # ==========================================================
 # IMPORTACAO DAS BIBLIOTECAS
 # ==========================================================
@@ -14,6 +13,7 @@ from flask import Flask, jsonify, request, render_template
 import math
 
 from datetime import datetime, timezone
+import time
 
 
 # ==========================================================
@@ -53,6 +53,24 @@ CLASSIFICACOES_AR = (
 
 
 # ==========================================================
+# PARAMETROS DO FILTRO DE VARIACAO TEMPORAL
+# ==========================================================
+
+# Valores iniciais conservadores. Eles podem ser ajustados após
+# observar o comportamento real dos sensores durante os testes.
+#
+# Temperatura: admite variação de até 1,0 °C por segundo.
+# O intervalo mínimo de 2 segundos considera o intervalo de
+# atualização do DHT22 no firmware atual.
+TAXA_MAXIMA_TEMPERATURA = 1.0  # °C por segundo
+INTERVALO_MINIMO_TEMPERATURA = 2.0  # segundos
+
+# Pressão: admite variação de até 0,5 hPa por segundo.
+TAXA_MAXIMA_PRESSAO = 0.5  # hPa por segundo
+INTERVALO_MINIMO_PRESSAO = 1.0  # segundos
+
+
+# ==========================================================
 # ARMAZENAMENTO DOS DADOS DOS SENSORES
 # ==========================================================
 
@@ -69,6 +87,14 @@ dados = {
 # Armazena o horário da última medição válida recebida.
 # Inicialmente não existe nenhuma medição.
 ultima_atualizacao = None
+
+# Guarda o instante monotônico da última temperatura e pressão
+# aceitas. Esses valores permitem calcular o tempo entre leituras.
+ultima_temperatura_aceita = None
+ultima_pressao_aceita = None
+
+# Guarda os avisos gerados na requisição mais recente.
+avisos_validacao = []
 
 
 # ==========================================================
@@ -268,6 +294,116 @@ def validar_dados(novos_dados):
 
 
 # ==========================================================
+# FILTRO TEMPORAL: TEMPERATURA E PRESSAO
+# ==========================================================
+
+def filtrar_variacoes_temporais(novos_dados_validos, instante_atual):
+
+    global ultima_temperatura_aceita, ultima_pressao_aceita
+
+    # Cria uma cópia para preservar os dados recebidos.
+    # Somente temperatura e pressão podem ser substituídas
+    # pelos últimos valores aceitos caso uma variação seja suspeita.
+    dados_filtrados = novos_dados_validos.copy()
+    avisos = []
+
+    # ------------------------------------------------------
+    # 1. FILTRO DA TEMPERATURA
+    # ------------------------------------------------------
+
+    temperatura_anterior = dados["temperatura"]
+
+    # A primeira leitura válida serve como referência inicial.
+    if temperatura_anterior is None or ultima_temperatura_aceita is None:
+
+        ultima_temperatura_aceita = instante_atual
+
+    else:
+
+        tempo_decorrido = max(
+            instante_atual - ultima_temperatura_aceita,
+            INTERVALO_MINIMO_TEMPERATURA
+        )
+
+        variacao = abs(
+            novos_dados_validos["temperatura"] - temperatura_anterior
+        )
+
+        variacao_permitida = (
+            TAXA_MAXIMA_TEMPERATURA * tempo_decorrido
+        )
+
+        if variacao > variacao_permitida:
+
+            # Mantém a última temperatura aceita.
+            # O restante dos sensores continua sendo atualizado.
+            dados_filtrados["temperatura"] = temperatura_anterior
+
+            avisos.append(
+                "Temperatura preservada: variação de "
+                f"{variacao:.2f} °C em aproximadamente "
+                f"{tempo_decorrido:.1f} s; limite calculado de "
+                f"{variacao_permitida:.2f} °C."
+            )
+
+            # Não atualiza o instante da última leitura aceita.
+            # Assim, uma mudança persistente poderá ser aceita
+            # quando se tornar plausível em relação ao tempo decorrido.
+
+        else:
+
+            ultima_temperatura_aceita = instante_atual
+
+
+    # ------------------------------------------------------
+    # 2. FILTRO DA PRESSAO ATMOSFERICA
+    # ------------------------------------------------------
+
+    pressao_anterior = dados["pressao"]
+
+    # A primeira leitura válida serve como referência inicial.
+    if pressao_anterior is None or ultima_pressao_aceita is None:
+
+        ultima_pressao_aceita = instante_atual
+
+    else:
+
+        tempo_decorrido = max(
+            instante_atual - ultima_pressao_aceita,
+            INTERVALO_MINIMO_PRESSAO
+        )
+
+        variacao = abs(
+            novos_dados_validos["pressao"] - pressao_anterior
+        )
+
+        variacao_permitida = TAXA_MAXIMA_PRESSAO * tempo_decorrido
+
+        if variacao > variacao_permitida:
+
+            # Mantém a última pressão aceita.
+            # O restante dos sensores continua sendo atualizado.
+            dados_filtrados["pressao"] = pressao_anterior
+
+            avisos.append(
+                "Pressão preservada: variação de "
+                f"{variacao:.2f} hPa em aproximadamente "
+                f"{tempo_decorrido:.1f} s; limite calculado de "
+                f"{variacao_permitida:.2f} hPa."
+            )
+
+            # Não atualiza o instante da última leitura aceita.
+            # Uma mudança persistente poderá ser aceita após tempo suficiente.
+
+        else:
+
+            ultima_pressao_aceita = instante_atual
+
+
+    return dados_filtrados, avisos
+
+
+# ==========================================================
 # ROTA DA DASHBOARD
 # ==========================================================
 
@@ -298,7 +434,7 @@ def inicio():
 @app.route("/dados", methods=["GET", "POST"])
 def gerenciar_dados():
 
-    global dados, ultima_atualizacao
+    global dados, ultima_atualizacao, avisos_validacao
 
 
     # ======================================================
@@ -323,7 +459,7 @@ def gerenciar_dados():
 
 
         # --------------------------------------------------
-        # EXECUCAO DAS VALIDACOES
+        # EXECUCAO DAS VALIDACOES FISICAS E DE FORMATO
         # --------------------------------------------------
 
         erros = validar_dados(novos_dados)
@@ -333,39 +469,55 @@ def gerenciar_dados():
         if erros:
 
             return jsonify({
-
                 "erro": "Dados inválidos.",
-
                 "detalhes": erros
-
             }), 400
+
+
+        # --------------------------------------------------
+        # SELECAO DOS CAMPOS ESPERADOS PELA API
+        # --------------------------------------------------
+
+        # Campos extras enviados no JSON são ignorados.
+        novos_dados_validos = {
+            campo: novos_dados[campo]
+            for campo in CAMPOS_OBRIGATORIOS
+        }
+
+
+        # --------------------------------------------------
+        # APLICACAO DO FILTRO TEMPORAL
+        # --------------------------------------------------
+
+        # Usa relógio monotônico para calcular intervalos.
+        # Ele é mais adequado que o horário civil para medir duração.
+        instante_atual = time.monotonic()
+
+        dados_filtrados, avisos_validacao = filtrar_variacoes_temporais(
+            novos_dados_validos,
+            instante_atual
+        )
 
 
         # --------------------------------------------------
         # ATUALIZACAO DOS DADOS
         # --------------------------------------------------
 
-        # Armazena somente os campos esperados pela API.
-        # Campos extras enviados no JSON são ignorados.
-        novos_dados_validos = {
-
-            campo: novos_dados[campo]
-
-            for campo in CAMPOS_OBRIGATORIOS
-        }
-
-        dados = novos_dados_validos
+        # Se temperatura ou pressão forem suspeitas, seus últimos
+        # valores aceitos são mantidos. Os outros sensores são atualizados.
+        dados = dados_filtrados
 
 
         # --------------------------------------------------
         # REGISTRO DO HORARIO DA NOVA MEDICAO
         # --------------------------------------------------
 
-        # Atualiza o horário somente depois que a medição
-        # passou por todas as validações e foi armazenada.
+        # Atualiza o horário porque o pacote foi recebido e os demais
+        # campos passaram pelas validações, mesmo que um dos sensores
+        # tenha tido seu valor anterior preservado pelo filtro temporal.
         #
-        # O formato ISO 8601 permite que o JavaScript
-        # converta o horário corretamente para Date.
+        # O formato ISO 8601 permite que o JavaScript converta o horário
+        # corretamente para Date.
         ultima_atualizacao = datetime.now(timezone.utc).isoformat()
 
 
@@ -374,13 +526,10 @@ def gerenciar_dados():
         # --------------------------------------------------
 
         return jsonify({
-
-            "mensagem": "Dados recebidos e validados com sucesso.",
-
+            "mensagem": "Dados recebidos e processados com sucesso.",
             "dados": dados,
-
+            "avisos_validacao": avisos_validacao,
             "ultima_atualizacao": ultima_atualizacao
-
         }), 200
 
 
@@ -389,13 +538,12 @@ def gerenciar_dados():
     # ======================================================
 
     # O GET não altera os dados nem o horário.
-    # Apenas retorna a última medição válida armazenada.
+    # Apenas retorna a última medição armazenada e os avisos
+    # referentes à requisição mais recente.
     return jsonify({
-
         **dados,
-
-        "ultima_atualizacao": ultima_atualizacao
-
+        "ultima_atualizacao": ultima_atualizacao,
+        "avisos_validacao": avisos_validacao
     })
 
 
