@@ -297,7 +297,7 @@ function inicializarMapa() {
 
     if (statusMapa) {
         statusMapa.textContent =
-            "Marcador em localização aproximada na região central de São Paulo - SP.";
+            "Marcador em localização aproximada da estação";
     }
 
     console.log("Mapa inicializado com sucesso.");
