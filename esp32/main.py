@@ -5,6 +5,11 @@
 
 # machine: permite acessar os recursos físicos da ESP32.
 import machine
+import micropython
+
+# Reserva um pequeno buffer para facilitar o diagnóstico de exceções
+# relacionadas ao tratamento de interrupções.
+micropython.alloc_emergency_exception_buf(100)
 
 # network: disponibiliza os recursos de conexão Wi-Fi.
 import network
@@ -22,7 +27,7 @@ import ujson
 import urequests
 
 # Importa componentes do módulo machine.
-from machine import Pin, ADC, I2C
+from machine import Pin, ADC, I2C, Timer
 
 # Importa o driver do BMP280.
 from bmp280 import BMP280
@@ -33,8 +38,8 @@ from bmp280 import BMP280
 # ==========================================================
 
 # Credenciais de wifi
-WIFI_SSID = "wifi"
-WIFI_PASSWORD = "senha"
+WIFI_SSID = "WIFI"
+WIFI_PASSWORD = "SENHA"
 
 
 # Endereço da API hospedada no Render.
@@ -52,6 +57,18 @@ INTERVALO_DHT = 2000
 # Quantidade de leituras utilizadas na média do MQ-135.
 # Isso garante maior estabilidade do sensor.
 QUANTIDADE_LEITURAS_MQ = 20
+
+
+# ==========================================================
+# CONFIGURACOES DAS INTERRUPCOES DE TEMPORIZADOR
+# ==========================================================
+
+# Flags pré-alocadas compartilhadas com as interrupções.
+# Os callbacks apenas sinalizam os eventos.
+# O processamento será realizado no loop principal.
+
+evento_dht = bytearray(1)
+evento_envio = bytearray(1)
 
 
 # ==========================================================
@@ -122,11 +139,92 @@ bmp_sensor = BMP280(i2c, addr=0x76)
 
 
 # ----------------------------------------------------------
-# LDR - SENSOR DE LUMINOSIDADE
+# LDR - SENSOR DE LUMINOSIDADE COM INTERRUPCAO
 # ----------------------------------------------------------
 
-# Configura GPIO 34 como entrada digital.
+# O GPIO 34 é uma entrada digital e pode detectar interrupções
+# externas. Ele não possui pull-up/pull-down interno, portanto
+# o pino deve continuar recebendo um sinal definido pela saída DO.
 ldr_sensor = Pin(34, Pin.IN)
+
+
+# Tempo mínimo sem novas transições para considerar o estado estável.
+# Ajuda a ignorar pequenas oscilações do comparador do módulo LDR.
+TEMPO_ESTABILIZACAO_LDR = 50
+
+
+# Flag pré-alocada compartilhada com o callback da interrupção.
+# O callback apenas altera essa flag; não imprime nem lê outros sensores.
+ldr_interrupcao_pendente = bytearray(1)
+
+
+# Estado inicial conhecido do LDR (1 = escuro; 0 = claro, conforme os testes).
+estado_ldr_estavel = ldr_sensor.value()
+
+
+# Controle da verificação de estabilidade, executada no loop principal.
+verificacao_ldr_ativa = False
+inicio_verificacao_ldr = 0
+
+
+def interrupcao_ldr(pin):
+
+    # Rotina curta: apenas sinaliza que ocorreu uma transição no pino.
+    ldr_interrupcao_pendente[0] = 1
+
+
+# Detecta tanto a transição claro -> escuro quanto escuro -> claro.
+ldr_sensor.irq(
+    trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING,
+    handler=interrupcao_ldr
+)
+
+
+def processar_evento_ldr():
+
+    global verificacao_ldr_ativa
+    global inicio_verificacao_ldr
+    global estado_ldr_estavel
+
+    # Acessa a flag por uma seção crítica muito curta para evitar
+    # perder uma sinalização enquanto o loop principal a limpa.
+    estado_interrupcao = machine.disable_irq()
+    evento_detectado = ldr_interrupcao_pendente[0]
+    ldr_interrupcao_pendente[0] = 0
+    machine.enable_irq(estado_interrupcao)
+
+    # Cada nova transição reinicia a janela de estabilização.
+    if evento_detectado:
+        verificacao_ldr_ativa = True
+        inicio_verificacao_ldr = time.ticks_ms()
+
+    # Só confirma o novo estado após 50 ms sem nova transição.
+    if verificacao_ldr_ativa:
+
+        agora = time.ticks_ms()
+
+        if time.ticks_diff(agora, inicio_verificacao_ldr) >= TEMPO_ESTABILIZACAO_LDR:
+
+            novo_estado = ldr_sensor.value()
+
+            if novo_estado != estado_ldr_estavel:
+
+                estado_ldr_estavel = novo_estado
+
+                if novo_estado == 1:
+                    print("Interrupção LDR: ambiente escuro (DO=1).")
+                else:
+                    print("Interrupção LDR: ambiente claro (DO=0).")
+
+            verificacao_ldr_ativa = False
+
+
+if estado_ldr_estavel == 1:
+    print("Estado inicial do LDR: ESCURO (DO=1).")
+else:
+    print("Estado inicial do LDR: CLARO (DO=0).")
+
+print("Interrupção do LDR configurada nas duas bordas do GPIO 34.")
 
 
 # ----------------------------------------------------------
@@ -138,6 +236,87 @@ adc_mq135 = ADC(Pin(35))
 
 # Configura a atenuação do ADC.
 adc_mq135.atten(ADC.ATTN_11DB)
+
+
+# ==========================================================
+# INTERRUPCOES DOS TEMPORIZADORES
+# ==========================================================
+
+# ----------------------------------------------------------
+# TIMER 0 - INTERRUPCAO DO DHT22
+# ----------------------------------------------------------
+
+def interrupcao_timer_dht(timer):
+
+    # Apenas sinaliza que chegou o momento da leitura.
+    # A leitura real será realizada no loop principal.
+    evento_dht[0] = 1
+
+
+# ----------------------------------------------------------
+# TIMER 1 - INTERRUPCAO DO ENVIO PARA A API
+# ----------------------------------------------------------
+
+def interrupcao_timer_envio(timer):
+
+    # Apenas sinaliza que chegou o momento do envio.
+    # A coleta e o envio serão realizados no loop principal.
+    evento_envio[0] = 1
+
+
+# ----------------------------------------------------------
+# INICIALIZACAO DOS TEMPORIZADORES
+# ----------------------------------------------------------
+
+# Cria os objetos dos temporizadores.
+timer_dht = Timer(0)
+timer_envio = Timer(1)
+
+
+def iniciar_temporizadores():
+
+    # Configura o Timer 0 para gerar uma interrupção
+    # periódica a cada 2000 milissegundos.
+    timer_dht.init(
+        mode=Timer.PERIODIC,
+        period=INTERVALO_DHT,
+        callback=interrupcao_timer_dht
+    )
+
+    # Configura o Timer 1 para gerar uma interrupção
+    # periódica a cada 1000 milissegundos.
+    timer_envio.init(
+        mode=Timer.PERIODIC,
+        period=INTERVALO_ENVIO,
+        callback=interrupcao_timer_envio
+    )
+
+    print("Interrupção do DHT22 configurada: 2000 ms.")
+    print("Interrupção de envio configurada: 1000 ms.")
+
+
+# ----------------------------------------------------------
+# PROCESSAMENTO DOS EVENTOS DOS TEMPORIZADORES
+# ----------------------------------------------------------
+
+def verificar_eventos_timer():
+
+    # Desabilita temporariamente as interrupções para acessar
+    # e limpar as flags sem perder sinalizações.
+    estado_irq = machine.disable_irq()
+
+    # Captura os eventos sinalizados pelos temporizadores.
+    leitura_dht_pendente = evento_dht[0]
+    envio_pendente = evento_envio[0]
+
+    # Limpa as flags após a captura.
+    evento_dht[0] = 0
+    evento_envio[0] = 0
+
+    # Restaura o estado anterior das interrupções.
+    machine.enable_irq(estado_irq)
+
+    return leitura_dht_pendente, envio_pendente
 
 
 # ==========================================================
@@ -381,7 +560,8 @@ def verificar_wifi():
 # Reúne as últimas medições disponíveis.
 #
 # O DHT22 utiliza os valores armazenados pela atualizar_dht().
-# Os outros sensores são consultados neste ciclo.
+# O LDR utiliza o último estado confirmado pelo tratamento da interrupção.
+# BMP280 e MQ-135 são consultados neste ciclo de envio.
 
 def ler_sensores():
 
@@ -408,7 +588,9 @@ def ler_sensores():
     # LDR - LUMINOSIDADE DIGITAL
     # ------------------------------------------------------
 
-    luminosidade = ldr_sensor.value()
+    # Utiliza o último estado confirmado pela interrupção e pela
+    # verificação de estabilidade no loop principal.
+    luminosidade = estado_ldr_estavel
 
 
     # ------------------------------------------------------
@@ -482,7 +664,7 @@ def enviar_api(dados):
 
 
 # ==========================================================
-
+# INICIALIZACAO DO PROJETO
 # ==========================================================
 
 print("================================")
@@ -507,10 +689,13 @@ inicializar_wifi()
 atualizar_dht()
 
 
-# Registra os instantes iniciais dos intervalos.
-ultima_leitura_dht = time.ticks_ms()
+# ----------------------------------------------------------
+# INICIALIZACAO DAS INTERRUPCOES DE TEMPORIZADOR
+# ----------------------------------------------------------
 
-ultimo_envio = time.ticks_ms()
+# Inicia os temporizadores responsáveis por sinalizar
+# os eventos periódicos do DHT22 e do envio para a API.
+iniciar_temporizadores()
 
 
 # ==========================================================
@@ -518,6 +703,15 @@ ultimo_envio = time.ticks_ms()
 # ==========================================================
 
 while True:
+
+    # ------------------------------------------------------
+    # 0. PROCESSAMENTO DO EVENTO DO LDR
+    # ------------------------------------------------------
+
+    # A interrupção apenas sinaliza a mudança. A confirmação do
+    # estado é executada aqui, fora do callback, com debounce.
+    processar_evento_ldr()
+
 
     # ------------------------------------------------------
     # 1. VERIFICACAO DO WI-FI
@@ -528,44 +722,34 @@ while True:
     verificar_wifi()
 
 
-    # Obtém o instante atual.
-    agora = time.ticks_ms()
+    # ------------------------------------------------------
+    # 2. VERIFICACAO DOS EVENTOS DOS TEMPORIZADORES
+    # ------------------------------------------------------
+
+    # Captura os eventos sinalizados pelas interrupções.
+    # As flags são limpas dentro de uma seção crítica.
+    leitura_dht_pendente, envio_pendente = verificar_eventos_timer()
 
 
     # ------------------------------------------------------
-    # 2. CONTROLE INDEPENDENTE DO DHT22
+    # 3. CONTROLE INDEPENDENTE DO DHT22
     # ------------------------------------------------------
 
-    if time.ticks_diff(
-        agora,
-        ultima_leitura_dht
-    ) >= INTERVALO_DHT:
+    if leitura_dht_pendente:
 
-        # Realiza uma nova leitura.
+        # Realiza uma nova leitura fora da interrupção.
         atualizar_dht()
 
-        # Registra o instante da última tentativa.
-        ultima_leitura_dht = time.ticks_ms()
-
-
-    # Atualiza o instante após a possível leitura do DHT22.
-    agora = time.ticks_ms()
-
 
     # ------------------------------------------------------
-    # 3. CONTROLE DO INTERVALO DE ENVIO
+    # 4. CONTROLE DO INTERVALO DE ENVIO
     # ------------------------------------------------------
 
-    if time.ticks_diff(
-        agora,
-        ultimo_envio
-    ) >= INTERVALO_ENVIO:
-
-        ultimo_envio = agora
+    if envio_pendente:
 
 
         # --------------------------------------------------
-        # 4. VERIFICAR SE EXISTE UMA LEITURA VALIDA DO DHT22
+        # 5. VERIFICAR SE EXISTE UMA LEITURA VALIDA DO DHT22
         # --------------------------------------------------
 
         if temperatura_dht is None or umidade_dht is None:
@@ -582,7 +766,7 @@ while True:
 
 
                 # --------------------------------------------------
-                # 5. VERIFICAR SE OS DADOS PODEM SER ENVIADOS
+                # 6. VERIFICAR SE OS DADOS PODEM SER ENVIADOS
                 # --------------------------------------------------
 
                 if wifi.isconnected():
@@ -591,7 +775,7 @@ while True:
 
                 else:
 
-                    # Evita repetir esta mensagem a cada segundo.
+                    # Evita repetir esta mensagem a cada ciclo de envio.
                     if not aviso_sem_wifi:
 
                         print(
@@ -607,7 +791,7 @@ while True:
 
 
     # ------------------------------------------------------
-    # 6. AGUARDAR EVENTOS
+    # 7. AGUARDAR EVENTOS
     # ------------------------------------------------------
 
     # Permite que a ESP32 aguarde eventos do sistema
