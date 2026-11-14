@@ -12,8 +12,8 @@ const TEMPO_MAXIMO_SEM_DADOS = 5000;
 
 // Localização aproximada da estação meteorológica.
 const LOCALIZACAO_ESTACAO = {
-    latitude: -23.5505,
-    longitude: -46.6333,
+    latitude: -23.5118,
+    longitude: -46.5810,
     zoom: 12
 };
 
