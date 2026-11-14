@@ -1,3 +1,8 @@
+# Vídeo de Apresentação
+
+Confira o vídeo de apresentação da Estação Meteorológica Inteligente, disponível no link abaixo:
+youtube.com/watch?is=RkCnLGvl9OjKUCn-&v=jK29W2TPYUw&feature=youtu.be
+
 # Estação Meteorológica Inteligente com ESP32
 
 Projeto de uma estação meteorológica de baixo custo para monitoramento de condições ambientais. A estação utiliza uma **ESP32 com MicroPython** e sensores para coletar informações do ambiente, envia as leituras por Wi-Fi/HTTPS para uma **API desenvolvida em Flask** e disponibiliza os dados em uma **dashboard web pública**.
