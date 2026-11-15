@@ -249,11 +249,11 @@ A dashboard apresenta:
 
 ### Dashboard web
 
-![Dashboard em computador](media/dashboard-desktop.gif)
+![Dashboard em computador](media/dashboardWeb.gif)
 
-![Dashboard em celular](media/dashboard-mobile.gif)
+![Dashboard em celular](media/dashboardMobile.gif)
 
-![Alertas e indicadores da dashboard](media/dashboard-alertas.gif)
+![Alertas e indicadores da dashboard](media/alerta.gif)
 
 ## Funcionamento do firmware
 
