@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -56,67 +55,67 @@
             <!-- Cartão de temperatura -->
             <article class="card">
                 <h2>Temperatura</h2>
-
                 <p>
                     <span id="temperatura">--</span>
                     <span class="unit">°C</span>
                 </p>
             </article>
 
-
             <!-- Cartão de umidade relativa do ar -->
             <article class="card">
                 <h2>Umidade do ar</h2>
-
                 <p>
                     <span id="umidade">--</span>
                     <span class="unit">%</span>
                 </p>
             </article>
 
-
             <!-- Cartão de pressão atmosférica -->
             <article class="card">
                 <h2>Pressão atmosférica</h2>
-
                 <p>
                     <span id="pressao">--</span>
                     <span class="unit">hPa</span>
                 </p>
             </article>
 
-
             <!-- Cartão de luminosidade -->
             <!-- O LDR utiliza a saída digital DO, que retorna 0 ou 1 -->
             <article class="card">
                 <h2>Luminosidade</h2>
-
                 <p>
                     <span id="luminosidade">--</span>
                     <span class="unit">DO</span>
                 </p>
             </article>
 
-
-            <!-- Cartão de qualidade do ar -->
+            <!-- Cartão de qualidade do ar e estimativa em PPM do MQ-135 -->
             <article class="card">
                 <h2>Qualidade do ar</h2>
 
-                <!-- Média das leituras analógicas do MQ-135 -->
+                <!-- O primeiro valor recebe o destaque principal do CSS. -->
                 <p>
-                    <span id="adc_mq135">--</span>
-                    <span class="unit">ADC</span>
+                    <span id="ppm">--</span>
+                    <span class="unit">PPM estimado</span>
                 </p>
 
-                <!-- Classificação experimental da qualidade do ar -->
+                <!-- A classificação recebe a cor correspondente ao estado. -->
                 <p>
                     <span class="unit">Classificação:</span>
-                    <span id="qualidade_ar">--</span>
+                    <span id="indicador_ppm_estimado">--</span>
                 </p>
+
+                <p>
+                    <span class="unit">Leitura ADC:</span>
+                    <span id="adc_mq135">--</span>
+                </p>
+
+                <small class="observacao-mq135">
+                    Indicador experimental baseado na resposta do MQ-135.
+                </small>
             </article>
 
         </section>
-
 
         <!-- ================================================== -->
         <!-- GRAFICOS HISTORICOS DOS SENSORES                   -->
@@ -127,55 +126,44 @@
             <!-- Gráfico de temperatura -->
             <article class="card">
                 <h2>Temperatura ao longo do tempo</h2>
-
                 <div class="chart-container">
                     <canvas id="graficoTemperatura"></canvas>
                 </div>
             </article>
 
-
             <!-- Gráfico de umidade -->
             <article class="card">
                 <h2>Umidade do ar ao longo do tempo</h2>
-
                 <div class="chart-container">
                     <canvas id="graficoUmidade"></canvas>
                 </div>
             </article>
 
-
             <!-- Gráfico de pressão -->
             <article class="card">
                 <h2>Pressão atmosférica ao longo do tempo</h2>
-
                 <div class="chart-container">
                     <canvas id="graficoPressao"></canvas>
                 </div>
             </article>
 
-
-            <!-- Gráfico do MQ-135 -->
+            <!-- Gráfico da estimativa em PPM do MQ-135 -->
             <article class="card">
-                <h2>Qualidade do ar - MQ-135</h2>
-
+                <h2>Estimativa de PPM - MQ-135</h2>
                 <div class="chart-container">
-                    <canvas id="graficoMQ135"></canvas>
+                    <canvas id="graficoPPM"></canvas>
                 </div>
             </article>
 
         </section>
-
 
         <!-- ================================================== -->
         <!-- LOCALIZACAO DA ESTACAO                             -->
         <!-- ================================================== -->
 
         <section class="mapa-section">
-
             <article class="card mapa-card">
-
                 <h2>Localização da estação</h2>
-
                 <p class="mapa-descricao">
                     Localização aproximada da estação
                 </p>
@@ -191,13 +179,10 @@
                 <p id="mapa-status" class="mapa-status">
                     Carregando mapa...
                 </p>
-
             </article>
-
         </section>
 
     </main>
-
 
     <!-- Rodapé -->
     <footer>

@@ -362,7 +362,7 @@ main > .cards:first-of-type > .card:nth-child(5) {
     align-items: center;
 }
 
-#qualidade_ar {
+#indicador_ppm_estimado {
     padding: 3px 12px;
     font-size: 0.95rem;
     font-weight: 700;
@@ -371,23 +371,30 @@ main > .cards:first-of-type > .card:nth-child(5) {
     border-radius: 999px;
 }
 
-/* Cores das cinco classificações */
-
-#qualidade_ar.excelente,
-#qualidade_ar.boa {
+#indicador_ppm_estimado.excelente,
+#indicador_ppm_estimado.boa {
     color: var(--ok);
     background: rgba(52, 211, 153, 0.15);
 }
 
-#qualidade_ar.moderada {
+#indicador_ppm_estimado.moderada {
     color: var(--warn);
     background: rgba(251, 191, 36, 0.15);
 }
 
-#qualidade_ar.ruim,
-#qualidade_ar.pessima {
+#indicador_ppm_estimado.ruim,
+#indicador_ppm_estimado.pessima {
     color: var(--danger);
     background: rgba(248, 113, 113, 0.15);
+}
+
+/* Texto complementar do cartão do MQ-135. */
+.observacao-mq135 {
+    display: block;
+    position: relative;
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 0.78rem;
 }
 
 /* ==========================================================

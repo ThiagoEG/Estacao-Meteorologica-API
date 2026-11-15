@@ -38,7 +38,7 @@ const historico = {
     temperatura: [],
     umidade: [],
     pressao: [],
-    adc_mq135: []
+    ppm: []
 };
 
 
@@ -222,16 +222,17 @@ function inicializarGraficos() {
         "hPa"
     );
 
-    // MQ-135: escala de referência do ADC da ESP32.
-    graficos.adc_mq135 = criarGrafico(
-        "graficoMQ135",
-        "ADC MQ-135",
-        "Valor ADC",
+    // MQ-135: acompanha a estimativa experimental em ppm.
+    // O máximo é sugerido; o Chart.js pode ampliar a escala se necessário.
+    graficos.ppm = criarGrafico(
+        "graficoPPM",
+        "PPM estimado",
+        "PPM estimado",
         {
             min: 0,
-            max: 4095
+            max: 1000
         },
-        "ADC"
+        "ppm"
     );
 
     return true;
@@ -352,24 +353,17 @@ function inicializarAlertaQualidadeAr() {
 
 function atualizarAlertaQualidadeAr(qualidade) {
 
-    const campoQualidade = document.getElementById("qualidade_ar");
+    const campoQualidade = document.getElementById("indicador_ppm_estimado");
 
-    // Verifica se os elementos existem.
     if (!campoQualidade || !elementoAlertaAr) {
         return;
     }
 
-    // Normaliza o texto recebido.
     const classificacao = String(qualidade ?? "")
         .trim()
         .toUpperCase();
 
-
-    // --------------------------------------------------
-    // 1. ATUALIZAR A COR DO INDICADOR
-    // --------------------------------------------------
-
-    // Remove as classificações anteriores.
+    // Remove qualquer cor anterior antes de aplicar a nova classificação.
     campoQualidade.classList.remove(
         "excelente",
         "boa",
@@ -378,60 +372,41 @@ function atualizarAlertaQualidadeAr(qualidade) {
         "pessima"
     );
 
-    // Aplica uma classe somente quando a classificação
-    // recebida estiver entre as opções permitidas.
-    if (CLASSIFICACOES_QUALIDADE_AR.includes(classificacao)) {
+    // Quando o cálculo do MQ-135 não é válido, não exibe uma classificação.
+    if (classificacao === "LEITURA_INVALIDA" || !CLASSIFICACOES_QUALIDADE_AR.includes(classificacao)) {
 
-        campoQualidade.classList.add(
-            classificacao.toLowerCase()
-        );
-    }
-
-
-    // --------------------------------------------------
-    // 2. DEFINIR AS MENSAGENS DE ALERTA
-    // --------------------------------------------------
-
-    // As mensagens são baseadas nas faixas experimentais
-    // utilizadas pelo projeto.
-
-    const mensagens = {
-
-        MODERADA:
-            "Atenção: o indicador do MQ-135 está na faixa MODERADA. Continue acompanhando as medições.",
-
-        RUIM:
-            "Alerta: o indicador do MQ-135 está na faixa RUIM. Verifique as condições do ambiente.",
-
-        PESSIMA:
-            "Alerta: o indicador do MQ-135 está na faixa PÉSSIMA. Verifique o ambiente e acompanhe as leituras."
-    };
-
-
-    // Recupera a mensagem correspondente.
-    const mensagem = mensagens[classificacao];
-
-
-    // --------------------------------------------------
-    // 3. EXIBIR OU ESCONDER O ALERTA
-    // --------------------------------------------------
-
-    // EXCELENTE e BOA não apresentam mensagem de alerta.
-    if (!mensagem) {
+        campoQualidade.textContent = classificacao === "LEITURA_INVALIDA"
+            ? "Indisponível"
+            : "--";
 
         elementoAlertaAr.hidden = true;
         elementoAlertaAr.textContent = "";
         elementoAlertaAr.className = "alerta-ar";
-
         return;
     }
 
-    // Aplica a mensagem e a aparência correspondente.
+    campoQualidade.classList.add(classificacao.toLowerCase());
+
+    const mensagens = {
+        MODERADA:
+            "Atenção: o indicador experimental do MQ-135 está na faixa MODERADA. Continue acompanhando as medições.",
+        RUIM:
+            "Alerta: o indicador experimental do MQ-135 está na faixa RUIM. Verifique as condições do ambiente.",
+        PESSIMA:
+            "Alerta: o indicador experimental do MQ-135 está na faixa PÉSSIMA. Verifique o ambiente e acompanhe as leituras."
+    };
+
+    const mensagem = mensagens[classificacao];
+
+    if (!mensagem) {
+        elementoAlertaAr.hidden = true;
+        elementoAlertaAr.textContent = "";
+        elementoAlertaAr.className = "alerta-ar";
+        return;
+    }
+
     elementoAlertaAr.textContent = mensagem;
-
-    elementoAlertaAr.className =
-        "alerta-ar " + classificacao.toLowerCase();
-
+    elementoAlertaAr.className = "alerta-ar " + classificacao.toLowerCase();
     elementoAlertaAr.hidden = false;
 }
 
@@ -466,11 +441,13 @@ function registrarMedicao(dados) {
     // VALIDACAO DOS VALORES DOS SENSORES
     // --------------------------------------------------
 
+    // Os sensores meteorológicos principais continuam obrigatórios
+    // para registrar a medição. O campo ppm é opcional para manter
+    // compatibilidade com dados recebidos de firmwares anteriores.
     const chaves = [
         "temperatura",
         "umidade",
-        "pressao",
-        "adc_mq135"
+        "pressao"
     ];
 
     const valores = {};
@@ -497,6 +474,16 @@ function registrarMedicao(dados) {
         valores[chave] = Number(Number(valor).toFixed(2));
     }
 
+    const ppmRecebido = dados.ppm;
+
+    valores.ppm = (
+        ppmRecebido !== null &&
+        ppmRecebido !== undefined &&
+        Number.isFinite(Number(ppmRecebido))
+    )
+        ? Number(Number(ppmRecebido).toFixed(1))
+        : null;
+
 
     // Atualiza a referência da última medição registrada.
     ultimaAtualizacaoRecebida = horario;
@@ -522,7 +509,7 @@ function registrarMedicao(dados) {
 
     historico.pressao.push(valores.pressao);
 
-    historico.adc_mq135.push(valores.adc_mq135);
+    historico.ppm.push(valores.ppm);
 
 
     // --------------------------------------------------
@@ -535,7 +522,7 @@ function registrarMedicao(dados) {
         historico.temperatura.shift();
         historico.umidade.shift();
         historico.pressao.shift();
-        historico.adc_mq135.shift();
+        historico.ppm.shift();
     }
 
 
@@ -790,16 +777,21 @@ async function atualizarDados() {
         );
 
         atualizarElemento(
-            "qualidade_ar",
-            dados.qualidade_ar
+            "ppm",
+            dados.ppm,
+            1
         );
 
+        atualizarElemento(
+            "indicador_ppm_estimado",
+            dados.indicador_ppm_estimado
+        );
 
         // --------------------------------------------------
-        // 3. ATUALIZACAO DO ALERTA
+        // 3. ATUALIZACAO DO INDICADOR E DO ALERTA
         // --------------------------------------------------
 
-        atualizarAlertaQualidadeAr(dados.qualidade_ar);
+        atualizarAlertaQualidadeAr(dados.indicador_ppm_estimado);
 
 
         // --------------------------------------------------

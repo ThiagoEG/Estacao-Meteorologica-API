@@ -28,7 +28,9 @@ app = Flask(__name__)
 # CAMPOS OBRIGATORIOS DA API
 # ==========================================================
 
-# Define os seis campos que a ESP32 deve enviar.
+# Campos básicos mantidos obrigatórios para compatibilidade com o firmware.
+# Os campos "ppm" e "indicador_ppm_estimado" são opcionais durante a transição,
+# mas devem ser enviados juntos pela versão atualizada da ESP32.
 CAMPOS_OBRIGATORIOS = (
     "temperatura",
     "umidade",
@@ -37,6 +39,8 @@ CAMPOS_OBRIGATORIOS = (
     "adc_mq135",
     "qualidade_ar"
 )
+
+CAMPOS_PPM = ("ppm", "indicador_ppm_estimado")
 
 
 # ==========================================================
@@ -50,6 +54,23 @@ CLASSIFICACOES_AR = (
     "RUIM",
     "PESSIMA"
 )
+
+CLASSIFICACOES_PPM = CLASSIFICACOES_AR + ("LEITURA_INVALIDA",)
+
+
+def classificar_indicador_ppm(valor):
+    """Reproduz as faixas experimentais configuradas no firmware."""
+
+    if valor <= 100:
+        return "EXCELENTE"
+    elif valor <= 200:
+        return "BOA"
+    elif valor <= 500:
+        return "MODERADA"
+    elif valor <= 1000:
+        return "RUIM"
+    else:
+        return "PESSIMA"
 
 
 # ==========================================================
@@ -75,13 +96,17 @@ INTERVALO_MINIMO_PRESSAO = 1.0  # segundos
 # ==========================================================
 
 # Armazena as últimas medições válidas recebidas da ESP32.
+# Os campos ppm/indicador_ppm_estimado são experimentais e podem ser None
+# enquanto a ESP32 ainda não enviar a nova versão do payload.
 dados = {
     "temperatura": None,
     "umidade": None,
     "pressao": None,
     "luminosidade": None,
     "adc_mq135": None,
-    "qualidade_ar": None
+    "qualidade_ar": None,
+    "ppm": None,
+    "indicador_ppm_estimado": None
 }
 
 # Armazena o horário da última medição válida recebida.
@@ -290,6 +315,59 @@ def validar_dados(novos_dados):
             )
 
 
+    # ------------------------------------------------------
+    # 9. VALIDACAO DOS CAMPOS EXPERIMENTAIS DE PPM
+    # ------------------------------------------------------
+
+    tem_ppm = "ppm" in novos_dados
+    tem_indicador_ppm = "indicador_ppm_estimado" in novos_dados
+
+    # Os dois campos devem estar presentes juntos. Ambos continuam
+    # opcionais para permitir a transição a partir de firmwares antigos.
+    if tem_ppm != tem_indicador_ppm:
+        erros.append(
+            "Envie os campos 'ppm' e 'indicador_ppm_estimado' juntos."
+        )
+
+    elif tem_ppm and tem_indicador_ppm:
+
+        ppm = novos_dados.get("ppm")
+        indicador_ppm = novos_dados.get("indicador_ppm_estimado")
+
+        if ppm is None:
+            if indicador_ppm != "LEITURA_INVALIDA":
+                erros.append(
+                    "Quando 'ppm' for nulo, "
+                    "'indicador_ppm_estimado' deve ser LEITURA_INVALIDA."
+                )
+
+        elif not numero_valido(ppm):
+            erros.append("PPM inválido. Envie um número finito ou null.")
+
+        elif not 0 <= ppm <= 1_000_000:
+            erros.append(
+                "PPM fora da faixa permitida: utilize valores entre 0 e 1.000.000."
+            )
+
+        if (
+            not isinstance(indicador_ppm, str)
+            or indicador_ppm not in CLASSIFICACOES_PPM
+        ):
+            erros.append(
+                "Indicador PPM inválido. Utilize EXCELENTE, BOA, MODERADA, "
+                "RUIM, PESSIMA ou LEITURA_INVALIDA."
+            )
+
+        elif numero_valido(ppm):
+            indicador_esperado = classificar_indicador_ppm(ppm)
+
+            if indicador_ppm != indicador_esperado:
+                erros.append(
+                    "Indicador PPM incompatível com o valor enviado. "
+                    f"Para {ppm} ppm, o resultado esperado é {indicador_esperado}."
+                )
+
+
     return erros
 
 
@@ -483,6 +561,13 @@ def gerenciar_dados():
             campo: novos_dados[campo]
             for campo in CAMPOS_OBRIGATORIOS
         }
+
+        # Campos novos: ficam como None quando um firmware antigo ainda
+        # não os envia. A versão atual da ESP32 envia os dois campos.
+        novos_dados_validos["ppm"] = novos_dados.get("ppm")
+        novos_dados_validos["indicador_ppm_estimado"] = novos_dados.get(
+            "indicador_ppm_estimado"
+        )
 
 
         # --------------------------------------------------
