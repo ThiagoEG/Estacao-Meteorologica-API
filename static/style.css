@@ -388,15 +388,6 @@ main > .cards:first-of-type > .card:nth-child(5) {
     background: rgba(248, 113, 113, 0.15);
 }
 
-/* Texto complementar do cartão do MQ-135. */
-.observacao-mq135 {
-    display: block;
-    position: relative;
-    margin-top: 14px;
-    color: var(--muted);
-    font-size: 0.78rem;
-}
-
 /* ==========================================================
    AREA DOS GRAFICOS
    ========================================================== */

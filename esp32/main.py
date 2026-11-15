@@ -38,8 +38,8 @@ from bmp280 import BMP280
 # ==========================================================
 
 # Credenciais de wifi
-WIFI_SSID = "WIFI"
-WIFI_PASSWORD = "SENHA"
+WIFI_SSID = "wifi"
+WIFI_PASSWORD = "senha"
 
 
 # Endereço da API hospedada no Render.
@@ -53,9 +53,14 @@ INTERVALO_ENVIO = 1000
 # Intervalo entre as leituras do DHT22.
 INTERVALO_DHT = 2000
 
+# Correção da pressão atmosférica, em hPa.
+# OFFSET_PRESSAO = -10.0 significa subtrair 10 hPa da leitura bruta.
+# O valor foi avaliado de acordo com uma estação metereológica próxima
+OFFSET_PRESSAO = -10.0
+
 
 # Quantidade de leituras utilizadas na média do MQ-135.
-# Isso garante maior estabilidade do sensor.
+# Mantida em 20 para preservar o padrão atual do firmware.
 QUANTIDADE_LEITURAS_MQ = 20
 
 
@@ -228,14 +233,31 @@ print("Interrupção do LDR configurada nas duas bordas do GPIO 34.")
 
 
 # ----------------------------------------------------------
-# MQ-135 - QUALIDADE DO AR
+# MQ-135 - LEITURA ANALOGICA E ESTIMATIVA EXPERIMENTAL
 # ----------------------------------------------------------
 
 # Inicializa o ADC no GPIO 35.
 adc_mq135 = ADC(Pin(35))
 
-# Configura a atenuação do ADC.
+# Mantém a mesma configuração utilizada nos testes de tensão.
 adc_mq135.atten(ADC.ATTN_11DB)
+adc_mq135.width(ADC.WIDTH_12BIT)
+
+# Divisor externo: R1 entre AO e GPIO35; R2 entre GPIO35 e GND.
+R1_DIVISOR_MQ = 10000.0
+R2_DIVISOR_MQ = 20000.0
+FATOR_DIVISOR_MQ = (R1_DIVISOR_MQ + R2_DIVISOR_MQ) / R2_DIVISOR_MQ
+
+# Tensão de alimentação considerada para o circuito do MQ-135.
+VC_SENSOR_MQ = 5.0
+
+# Referência experimental obtida no segundo teste de estabilidade.
+# É uma referência experimental do ambiente nas condições do teste.
+V_AO_REFERENCIA_MQ = 0.5302
+
+# Coeficientes do modelo experimental provisório de estimativa em ppm.
+A_PPM_ESTIMADO = 77.255
+B_PPM_ESTIMADO = -3.18
 
 
 # ==========================================================
@@ -320,14 +342,13 @@ def verificar_eventos_timer():
 
 
 # ==========================================================
-# CLASSIFICACAO DA QUALIDADE DO AR
+# CLASSIFICACAO E LEITURA DO MQ-135
 # ==========================================================
 
-# Classificação experimental baseada nos testes realizados com mq-135
-
-# Não representa PPM
-
-def classificar_qualidade_ar(valor):
+# A classificação antiga por ADC é mantida temporariamente para
+# compatibilidade com a validação atual da API.
+# Ela não representa ppm nem limites oficiais de qualidade do ar.
+def classificar_qualidade_adc(valor):
 
     if valor <= 410:
         return "EXCELENTE"
@@ -345,26 +366,76 @@ def classificar_qualidade_ar(valor):
         return "PESSIMA"
 
 
-# ==========================================================
-# LEITURA DO SENSOR MQ-135
-# ==========================================================
+# Indicador experimental separado, baseado no ppm equivalente
+# calculado pela modelo experimental provisório.
+def classificar_indicador_ppm(ppm):
 
+    if ppm is None:
+        return "LEITURA_INVALIDA"
+
+    elif ppm <= 100:
+        return "EXCELENTE"
+
+    elif ppm <= 200:
+        return "BOA"
+
+    elif ppm <= 500:
+        return "MODERADA"
+
+    elif ppm <= 1000:
+        return "RUIM"
+
+    else:
+        return "PESSIMA"
+
+
+# Lê o ADC e a tensão calibrada do pino, calcula a tensão AO
+# antes do divisor e estima Rs/R0 e ppm estimado.
 def ler_mq135():
 
-    soma = 0
+    soma_adc = 0
+    soma_uv = 0
 
-    # Realiza várias leituras analógicas.
     for _ in range(QUANTIDADE_LEITURAS_MQ):
 
-        soma += adc_mq135.read()
+        soma_adc += adc_mq135.read()
+        soma_uv += adc_mq135.read_uv()
 
-    # Calcula a média das amostras.
-    media = soma / QUANTIDADE_LEITURAS_MQ
+    media_adc = soma_adc / QUANTIDADE_LEITURAS_MQ
+    v_gpio = (soma_uv / QUANTIDADE_LEITURAS_MQ) / 1000000.0
+    v_ao = v_gpio * FATOR_DIVISOR_MQ
 
-    # Classifica o resultado médio.
-    qualidade = classificar_qualidade_ar(media)
+    # Mantém esta classificação para que a API atual continue aceitando
+    # o campo qualidade_ar, cuja validação ainda depende do ADC.
+    qualidade_adc = classificar_qualidade_adc(media_adc)
 
-    return media, qualidade
+    ratio_rs_r0 = None
+    ppm = None
+
+    # Evita divisão por zero ou cálculo fora da faixa elétrica esperada.
+    if 0 < v_ao < VC_SENSOR_MQ and 0 < V_AO_REFERENCIA_MQ < VC_SENSOR_MQ:
+
+        fator_atual = (VC_SENSOR_MQ / v_ao) - 1.0
+        fator_referencia = (VC_SENSOR_MQ / V_AO_REFERENCIA_MQ) - 1.0
+
+        if fator_atual > 0 and fator_referencia > 0:
+
+            ratio_rs_r0 = fator_atual / fator_referencia
+
+            if ratio_rs_r0 > 0:
+                ppm = A_PPM_ESTIMADO * (ratio_rs_r0 ** B_PPM_ESTIMADO)
+
+    indicador_ppm_estimado = classificar_indicador_ppm(ppm)
+
+    return (
+        media_adc,
+        v_gpio,
+        v_ao,
+        ratio_rs_r0,
+        ppm,
+        qualidade_adc,
+        indicador_ppm_estimado
+    )
 
 
 # ==========================================================
@@ -581,7 +652,9 @@ def ler_sensores():
 
     # O driver retorna Pascal (Pa).
     # A divisão por 100 converte para hPa.
-    pressao = bmp_sensor.pressure / 100
+    # Em seguida, aplicamos o offset configurado em hPa.
+    pressao_bruta = bmp_sensor.pressure / 100
+    pressao = pressao_bruta + OFFSET_PRESSAO
 
 
     # ------------------------------------------------------
@@ -594,10 +667,18 @@ def ler_sensores():
 
 
     # ------------------------------------------------------
-    # MQ-135 - QUALIDADE DO AR
+    # MQ-135 - ADC, TENSAO, RAZAO E ESTIMATIVA EM PPM
     # ------------------------------------------------------
 
-    adc_mq135, qualidade_ar = ler_mq135()
+    (
+        adc_mq135,
+        v_gpio_mq135,
+        v_ao_mq135,
+        ratio_rs_r0,
+        ppm,
+        qualidade_ar,
+        indicador_ppm_estimado
+    ) = ler_mq135()
 
 
     # ------------------------------------------------------
@@ -610,13 +691,33 @@ def ler_sensores():
     print("Pressao:", round(pressao, 2), "hPa")
     print("Luminosidade (DO):", luminosidade)
     print("ADC MQ-135:", round(adc_mq135, 2))
-    print("Qualidade do ar:", qualidade_ar)
+    print("GPIO MQ-135:", round(v_gpio_mq135, 4), "V")
+    print("AO MQ-135:", round(v_ao_mq135, 4), "V")
+
+    if ratio_rs_r0 is not None:
+        print("Rs/R0:", round(ratio_rs_r0, 4))
+    else:
+        print("Rs/R0: leitura invalida")
+
+    if ppm is not None:
+        print(
+            "PPM estimado:",
+            round(ppm, 1), "ppm"
+        )
+    else:
+        print("PPM estimado: indisponivel")
+
+    print("Classificacao ADC (compatibilidade API):", qualidade_ar)
+    print("Indicador ppm estimado:", indicador_ppm_estimado)
     print("--------------------------------")
 
 
     # ------------------------------------------------------
     # ORGANIZACAO DOS DADOS PARA A API
     # ------------------------------------------------------
+    # Os dois campos novos sao enviados no JSON. A API atual do projeto
+    # aceita campos extras, mas os descarta; ela precisara ser atualizada
+    # para armazenar e devolver esses campos no GET /dados.
 
     dados = {
         "temperatura": temperatura,
@@ -624,7 +725,9 @@ def ler_sensores():
         "pressao": pressao,
         "luminosidade": luminosidade,
         "adc_mq135": adc_mq135,
-        "qualidade_ar": qualidade_ar
+        "qualidade_ar": qualidade_ar,
+        "ppm": ppm,
+        "indicador_ppm_estimado": indicador_ppm_estimado
     }
 
     return dados
@@ -797,4 +900,7 @@ while True:
     # Permite que a ESP32 aguarde eventos do sistema
     # sem bloquear a lógica de reconexão.
     machine.idle()
+
+
+
 
