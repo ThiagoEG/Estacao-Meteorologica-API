@@ -2,18 +2,17 @@
 # IMPORTACAO DAS BIBLIOTECAS
 # ==========================================================
 
-# Flask fornece a estrutura da aplicação web.
-# Flask cria a aplicação; jsonify gera respostas JSON; request lê o corpo
-# da requisição; render_template carrega a página HTML da dashboard.
+# Flask cria a aplicação, jsonify gera respostas JSON, request
+# lê o corpo das requisições e render_template carrega o HTML.
 from flask import Flask, jsonify, request, render_template
 
-# datetime e timezone geram o horário da última atualização em formato UTC.
+# datetime e timezone registram o horário das medições em UTC.
 from datetime import datetime, timezone
 
 # math permite verificar se os números recebidos são finitos.
 import math
 
-# time.monotonic mede intervalos de tempo sem depender do relógio do sistema.
+# time.monotonic mede intervalos sem depender do relógio do sistema.
 import time
 
 
@@ -21,7 +20,7 @@ import time
 # INICIALIZACAO DA APLICACAO
 # ==========================================================
 
-# Cria a aplicação Flask. O objeto app será utilizado para registrar as rotas.
+# Cria a aplicação Flask que receberá e processará as requisições.
 app = Flask(__name__)
 
 
@@ -29,9 +28,8 @@ app = Flask(__name__)
 # CAMPOS E CLASSIFICACOES DA API
 # ==========================================================
 
-# Define os campos que a ESP32 precisa enviar em cada pacote JSON.
-# adc_mq135 é mantido como leitura bruta para diagnóstico; a classificação
-# apresentada ao usuário é calculada a partir de ppm.
+# Define os campos obrigatórios enviados pela ESP32.
+# O ADC é mantido como leitura bruta para diagnóstico.
 CAMPOS_OBRIGATORIOS = (
     "temperatura",
     "umidade",
@@ -42,8 +40,7 @@ CAMPOS_OBRIGATORIOS = (
     "indicador_ppm_estimado",
 )
 
-# Lista os valores de classificação aceitos para o indicador de PPM.
-# LEITURA_INVALIDA é utilizado quando a ESP32 não consegue calcular ppm.
+# Lista as classificações aceitas pela API.
 CLASSIFICACOES_PPM = (
     "EXCELENTE",
     "BOA",
@@ -53,17 +50,28 @@ CLASSIFICACOES_PPM = (
     "LEITURA_INVALIDA",
 )
 
-# Define a faixa máxima de variação de temperatura permitida por segundo.
+# Define os limites de classificação em PPM.
+# Os valores correspondem às conversões aproximadas dos limites ADC definidos.
+LIMITE_PPM_EXCELENTE = 234.2
+LIMITE_PPM_BOA = 609.1
+LIMITE_PPM_MODERADA = 1953.0
+LIMITE_PPM_RUIM = 7041.6
+
+
+# ==========================================================
+# PARAMETROS DO FILTRO TEMPORAL
+# ==========================================================
+
+# Define a variação máxima de temperatura permitida por segundo.
 TAXA_MAXIMA_TEMPERATURA = 1.0
 
-# Define o menor intervalo considerado pelo filtro da temperatura.
-# Esse limite evita calcular uma taxa usando um intervalo excessivamente curto.
+# Define o intervalo mínimo utilizado no cálculo da variação da temperatura.
 INTERVALO_MINIMO_TEMPERATURA = 2.0
 
-# Define a faixa máxima de variação de pressão permitida por segundo.
+# Define a variação máxima de pressão permitida por segundo.
 TAXA_MAXIMA_PRESSAO = 0.5
 
-# Define o menor intervalo considerado pelo filtro da pressão.
+# Define o intervalo mínimo utilizado no cálculo da variação da pressão.
 INTERVALO_MINIMO_PRESSAO = 1.0
 
 
@@ -71,9 +79,8 @@ INTERVALO_MINIMO_PRESSAO = 1.0
 # ARMAZENAMENTO DOS DADOS DOS SENSORES
 # ==========================================================
 
-# Guarda a última medição aceita de cada sensor.
-# None indica que a API ainda não recebeu uma medição para aquele campo.
-# Os dados ficam em memória e não são preservados se o processo da API reiniciar.
+# Armazena a última medição válida de cada sensor.
+# None indica que ainda não existe uma leitura recebida.
 dados = {
     "temperatura": None,
     "umidade": None,
@@ -84,19 +91,15 @@ dados = {
     "indicador_ppm_estimado": None,
 }
 
-# Armazena o horário UTC em que o último pacote válido foi recebido.
-# O valor começa como None porque ainda não houve recebimento.
+# Armazena o horário da última atualização recebida.
 ultima_atualizacao = None
 
-# Guarda o instante monotônico em que a última temperatura aceita foi recebida.
-# É usado para calcular quanto tempo passou entre temperaturas aceitas.
+# Guarda o instante da última temperatura e pressão aceitas.
+# Esses valores são utilizados pelo filtro temporal.
 ultima_temperatura_aceita = None
-
-# Guarda o instante monotônico em que a última pressão aceita foi recebida.
-# É usado para calcular quanto tempo passou entre pressões aceitas.
 ultima_pressao_aceita = None
 
-# Armazena avisos produzidos pelo filtro temporal no pacote mais recente.
+# Armazena os avisos gerados pela validação mais recente.
 avisos_validacao = []
 
 
@@ -105,9 +108,8 @@ avisos_validacao = []
 # ==========================================================
 
 def numero_valido(valor):
-    # JSON pode representar números, mas também podemos receber texto,
-    # valores booleanos ou números não finitos. Esses casos não são medições válidas.
-    # Em Python, bool herda de int; por isso é excluído explicitamente.
+    # Verifica se o valor é numérico, finito e não booleano.
+    # bool é excluído porque, em Python, também é considerado um tipo inteiro.
     return (
         isinstance(valor, (int, float))
         and not isinstance(valor, bool)
@@ -116,17 +118,21 @@ def numero_valido(valor):
 
 
 def classificar_indicador_ppm(valor):
-    # Compara o valor recebido com as faixas usadas no firmware.
-    # A primeira condição verdadeira define a classificação retornada.
-    if valor <= 100:
+    # Compara a concentração estimada com os limites definidos.
+    if valor <= LIMITE_PPM_EXCELENTE:
         return "EXCELENTE"
-    if valor <= 200:
+
+    elif valor <= LIMITE_PPM_BOA:
         return "BOA"
-    if valor <= 500:
+
+    elif valor <= LIMITE_PPM_MODERADA:
         return "MODERADA"
-    if valor <= 1000:
+
+    elif valor <= LIMITE_PPM_RUIM:
         return "RUIM"
-    return "PESSIMA"
+
+    else:
+        return "PESSIMA"
 
 
 # ==========================================================
@@ -134,20 +140,22 @@ def classificar_indicador_ppm(valor):
 # ==========================================================
 
 def validar_dados(novos_dados):
-    # Acumula todos os problemas encontrados para retornar uma única resposta
-    # com os campos que precisam ser corrigidos.
+
+    # Armazena as mensagens referentes aos campos inválidos.
     erros = []
 
-    # Confere se o pacote contém todos os campos exigidos pela API.
-    # A compreensão de lista reúne os nomes dos campos ausentes.
+    # Identifica os campos obrigatórios que não foram enviados.
     campos_faltantes = [
-        campo for campo in CAMPOS_OBRIGATORIOS
+        campo
+        for campo in CAMPOS_OBRIGATORIOS
         if campo not in novos_dados
     ]
 
-    # Acrescenta uma mensagem para cada campo que não foi enviado.
+    # Adiciona uma mensagem para cada campo ausente.
     for campo in campos_faltantes:
-        erros.append(f"O campo '{campo}' não foi enviado.")
+        erros.append(
+            f"O campo '{campo}' não foi enviado."
+        )
 
     # ------------------------------------------------------
     # 1. VALIDACAO DA TEMPERATURA
@@ -156,9 +164,11 @@ def validar_dados(novos_dados):
     # Obtém a temperatura enviada pelo DHT22.
     temperatura = novos_dados.get("temperatura")
 
-    # Primeiro verifica o tipo e se o número é finito; depois verifica a faixa.
+    # Verifica se a temperatura é um número finito.
     if not numero_valido(temperatura):
         erros.append("Temperatura inválida. Envie um número finito.")
+
+    # Verifica se a temperatura está dentro da faixa permitida.
     elif not -40 <= temperatura <= 80:
         erros.append(
             "Temperatura fora da faixa permitida: "
@@ -172,9 +182,11 @@ def validar_dados(novos_dados):
     # Obtém a umidade relativa enviada pelo DHT22.
     umidade = novos_dados.get("umidade")
 
-    # A umidade relativa é expressa em porcentagem e não pode sair de 0 a 100.
+    # Verifica se a umidade é um número finito.
     if not numero_valido(umidade):
         erros.append("Umidade inválida. Envie um número finito.")
+
+    # A umidade relativa deve permanecer entre 0 e 100%.
     elif not 0 <= umidade <= 100:
         erros.append(
             "Umidade fora da faixa permitida: "
@@ -185,14 +197,14 @@ def validar_dados(novos_dados):
     # 3. VALIDACAO DA PRESSAO ATMOSFERICA
     # ------------------------------------------------------
 
-    # Obtém a pressão enviada pelo BMP280, já convertida para hPa e ajustada
-    # pelo offset aplicado no firmware da ESP32.
+    # Obtém a pressão enviada pelo BMP280.
     pressao = novos_dados.get("pressao")
 
-    # A faixa evita aceitar valores incompatíveis com uma leitura atmosférica
-    # plausível para o sensor e a aplicação.
+    # Verifica se a pressão é um número finito.
     if not numero_valido(pressao):
         erros.append("Pressão inválida. Envie um número finito.")
+
+    # Verifica se a pressão está dentro da faixa permitida.
     elif not 300 <= pressao <= 1100:
         erros.append(
             "Pressão fora da faixa permitida: "
@@ -203,11 +215,11 @@ def validar_dados(novos_dados):
     # 4. VALIDACAO DA LUMINOSIDADE
     # ------------------------------------------------------
 
-    # O módulo LDR está conectado pela saída digital DO.
+    # Obtém o estado digital enviado pelo módulo LDR.
     luminosidade = novos_dados.get("luminosidade")
 
-    # Aceita somente os inteiros 0 e 1. O teste de bool é necessário porque
-    # True e False também são considerados inteiros pelo Python.
+    # Aceita somente os inteiros 0 e 1.
+    # A verificação de bool impede que True e False sejam aceitos como inteiros.
     if (
         not isinstance(luminosidade, int)
         or isinstance(luminosidade, bool)
@@ -221,13 +233,14 @@ def validar_dados(novos_dados):
     # 5. VALIDACAO DO ADC DO MQ-135
     # ------------------------------------------------------
 
-    # Mantém a leitura bruta do ADC para diagnóstico, mesmo que a classificação
-    # principal do ar seja baseada no campo ppm.
+    # Obtém a média das leituras analógicas do MQ-135.
     adc = novos_dados.get("adc_mq135")
 
-    # O ADC de 12 bits da ESP32 retorna valores entre 0 e 4095.
+    # Verifica se o ADC é um número finito.
     if not numero_valido(adc):
         erros.append("ADC do MQ-135 inválido. Envie um número finito.")
+
+    # O ADC de 12 bits da ESP32 utiliza valores entre 0 e 4095.
     elif not 0 <= adc <= 4095:
         erros.append(
             "ADC do MQ-135 fora da faixa permitida: "
@@ -238,27 +251,34 @@ def validar_dados(novos_dados):
     # 6. VALIDACAO DO PPM E DO INDICADOR
     # ------------------------------------------------------
 
-    # Obtém os dois campos calculados pelo firmware.
+    # Obtém a estimativa de PPM e sua respectiva classificação.
     ppm = novos_dados.get("ppm")
     indicador_ppm = novos_dados.get("indicador_ppm_estimado")
 
-    # Quando o cálculo de ppm falha, o firmware deve enviar None junto
-    # com o indicador LEITURA_INVALIDA. Nos demais casos, ppm deve ser numérico.
+    # Quando a leitura não pode ser calculada, o firmware deve enviar
+    # ppm como null e utilizar a classificação LEITURA_INVALIDA.
     if ppm is None:
+
         if indicador_ppm != "LEITURA_INVALIDA":
             erros.append(
                 "Quando 'ppm' for nulo, "
                 "'indicador_ppm_estimado' deve ser LEITURA_INVALIDA."
             )
+
+    # Verifica se o PPM é um número finito.
     elif not numero_valido(ppm):
-        erros.append("PPM inválido. Envie um número finito ou null.")
+        erros.append(
+            "PPM inválido. Envie um número finito ou null."
+        )
+
+    # Impede valores negativos ou excessivamente elevados.
     elif not 0 <= ppm <= 1_000_000:
         erros.append(
             "PPM fora da faixa permitida: "
             "utilize valores entre 0 e 1.000.000."
         )
 
-    # Confere se o indicador pertence à lista de classificações aceitas.
+    # Verifica se a classificação pertence às opções permitidas.
     if (
         not isinstance(indicador_ppm, str)
         or indicador_ppm not in CLASSIFICACOES_PPM
@@ -267,9 +287,10 @@ def validar_dados(novos_dados):
             "Indicador PPM inválido. Utilize EXCELENTE, BOA, MODERADA, "
             "RUIM, PESSIMA ou LEITURA_INVALIDA."
         )
-    # Se ppm for um número válido, compara a classificação enviada com a faixa
-    # calculada novamente pela API. Isso evita receber pares incompatíveis.
+
+    # Confere se a classificação corresponde à faixa calculada pela API.
     elif numero_valido(ppm):
+
         indicador_esperado = classificar_indicador_ppm(ppm)
 
         if indicador_ppm != indicador_esperado:
@@ -278,7 +299,7 @@ def validar_dados(novos_dados):
                 f"Para {ppm} ppm, o resultado esperado é {indicador_esperado}."
             )
 
-    # Retorna a lista vazia quando todos os campos passaram pelas validações.
+    # Retorna todos os erros encontrados.
     return erros
 
 
@@ -287,61 +308,62 @@ def validar_dados(novos_dados):
 # ==========================================================
 
 def filtrar_variacoes_temporais(novos_dados_validos, instante_atual):
-    # As duas variáveis globais guardam o momento em que cada tipo de leitura
-    # foi aceito pela última vez.
+
+    # Permite atualizar os instantes das últimas leituras aceitas.
     global ultima_temperatura_aceita, ultima_pressao_aceita
 
-    # Copia o pacote para que seja possível preservar uma medição anterior
-    # sem modificar o objeto recebido originalmente.
+    # Cria uma cópia para preservar o pacote original recebido.
     dados_filtrados = novos_dados_validos.copy()
 
-    # Reúne mensagens quando uma variação ultrapassa o limite configurado.
+    # Armazena avisos gerados durante a análise das medições.
     avisos = []
 
     # ------------------------------------------------------
     # 1. FILTRO DA TEMPERATURA
     # ------------------------------------------------------
 
-    # Recupera a última temperatura armazenada pela API.
+    # Recupera a última temperatura armazenada.
     temperatura_anterior = dados["temperatura"]
 
-    # Na primeira medição, não existe valor anterior para comparar.
-    # Por isso, ela é aceita como referência inicial.
+    # A primeira leitura válida é utilizada como referência.
     if temperatura_anterior is None or ultima_temperatura_aceita is None:
+
         ultima_temperatura_aceita = instante_atual
+
     else:
+
         # Calcula o tempo desde a última temperatura aceita.
-        # max() garante o intervalo mínimo configurado, mesmo que as requisições
-        # cheguem em uma sequência mais rápida que o esperado.
+        # O intervalo mínimo evita divisões por períodos muito curtos.
         tempo_decorrido = max(
             instante_atual - ultima_temperatura_aceita,
-            INTERVALO_MINIMO_TEMPERATURA,
+            INTERVALO_MINIMO_TEMPERATURA
         )
 
-        # Calcula a diferença absoluta entre a temperatura nova e a anterior.
+        # Calcula a diferença absoluta entre as temperaturas.
         variacao = abs(
             novos_dados_validos["temperatura"] - temperatura_anterior
         )
 
-        # Multiplica a taxa máxima pelo tempo para determinar a diferença
-        # que o filtro considera aceitável nesse intervalo.
-        variacao_permitida = TAXA_MAXIMA_TEMPERATURA * tempo_decorrido
+        # Calcula a variação máxima permitida para o intervalo.
+        variacao_permitida = (
+            TAXA_MAXIMA_TEMPERATURA * tempo_decorrido
+        )
 
         if variacao > variacao_permitida:
-            # Preserva a última temperatura aceita quando a variação é maior
-            # que o limite calculado. Os outros sensores continuam atualizando.
+
+            # Preserva a última temperatura aceita.
             dados_filtrados["temperatura"] = temperatura_anterior
 
-            # Registra a diferença observada e o limite para diagnóstico.
+            # Registra a diferença encontrada para diagnóstico.
             avisos.append(
                 "Temperatura preservada: variação de "
-                f"{variacao:.2f} °C em aproximadamente {tempo_decorrido:.1f} s; "
-                f"limite calculado de {variacao_permitida:.2f} °C."
+                f"{variacao:.2f} °C em aproximadamente "
+                f"{tempo_decorrido:.1f} s; limite calculado de "
+                f"{variacao_permitida:.2f} °C."
             )
 
-            # Não atualiza o instante da última leitura aceita. Assim, se a nova
-            # temperatura persistir, o limite permitido aumenta com o tempo.
         else:
+
             # Atualiza o instante quando a nova temperatura é aceita.
             ultima_temperatura_aceita = instante_atual
 
@@ -349,45 +371,51 @@ def filtrar_variacoes_temporais(novos_dados_validos, instante_atual):
     # 2. FILTRO DA PRESSAO ATMOSFERICA
     # ------------------------------------------------------
 
-    # Recupera a última pressão armazenada pela API.
+    # Recupera a última pressão armazenada.
     pressao_anterior = dados["pressao"]
 
-    # A primeira pressão recebida é aceita porque ainda não existe referência.
+    # A primeira leitura válida é utilizada como referência.
     if pressao_anterior is None or ultima_pressao_aceita is None:
+
         ultima_pressao_aceita = instante_atual
+
     else:
-        # Calcula o intervalo desde a última pressão aceita, respeitando
-        # o intervalo mínimo definido nas configurações.
+
+        # Calcula o intervalo desde a última pressão aceita.
         tempo_decorrido = max(
             instante_atual - ultima_pressao_aceita,
-            INTERVALO_MINIMO_PRESSAO,
+            INTERVALO_MINIMO_PRESSAO
         )
 
-        # Calcula quanto a pressão mudou desde a última medição aceita.
+        # Calcula a diferença absoluta entre as pressões.
         variacao = abs(
             novos_dados_validos["pressao"] - pressao_anterior
         )
 
-        # Determina a variação máxima permitida para o intervalo decorrido.
-        variacao_permitida = TAXA_MAXIMA_PRESSAO * tempo_decorrido
+        # Calcula a variação máxima permitida para o intervalo.
+        variacao_permitida = (
+            TAXA_MAXIMA_PRESSAO * tempo_decorrido
+        )
 
         if variacao > variacao_permitida:
-            # Mantém a pressão anterior se a mudança for maior que o limite.
+
+            # Preserva a última pressão aceita.
             dados_filtrados["pressao"] = pressao_anterior
 
-            # Guarda um aviso que poderá ser consultado no GET /dados.
+            # Registra a diferença encontrada para diagnóstico.
             avisos.append(
                 "Pressão preservada: variação de "
-                f"{variacao:.2f} hPa em aproximadamente {tempo_decorrido:.1f} s; "
-                f"limite calculado de {variacao_permitida:.2f} hPa."
+                f"{variacao:.2f} hPa em aproximadamente "
+                f"{tempo_decorrido:.1f} s; limite calculado de "
+                f"{variacao_permitida:.2f} hPa."
             )
 
-            # O instante da última pressão aceita não é alterado nesta condição.
         else:
-            # Atualiza o instante quando a nova pressão passa pelo filtro.
+
+            # Atualiza o instante quando a nova pressão é aceita.
             ultima_pressao_aceita = instante_atual
 
-    # Retorna o pacote após os filtros e os avisos produzidos nesta medição.
+    # Retorna os dados filtrados e os avisos produzidos.
     return dados_filtrados, avisos
 
 
@@ -397,7 +425,8 @@ def filtrar_variacoes_temporais(novos_dados_validos, instante_atual):
 
 @app.route("/dashboard")
 def dashboard():
-    # render_template procura index.html dentro da pasta templates.
+
+    # Procura index.html dentro da pasta templates.
     return render_template("index.html")
 
 
@@ -407,77 +436,89 @@ def dashboard():
 
 @app.route("/")
 def inicio():
-    # Retorna uma mensagem JSON simples para indicar que a aplicação está ativa.
-    return jsonify({"mensagem": "API FUNCIONANDO."})
+
+    # Retorna uma mensagem JSON para indicar que a API está ativa.
+    return jsonify({
+        "mensagem": "API FUNCIONANDO."
+    })
 
 
 # ==========================================================
 # ROTA DE RECEBIMENTO E CONSULTA DOS DADOS
 # ==========================================================
 
-# GET consulta a última medição armazenada; POST recebe uma nova medição da ESP32.
 @app.route("/dados", methods=["GET", "POST"])
 def gerenciar_dados():
-    # Atribuições a estas variáveis alteram os objetos armazenados no nível do módulo.
+
+    # Permite atualizar as variáveis armazenadas no nível do módulo.
     global dados, ultima_atualizacao, avisos_validacao
 
+    # ======================================================
+    # RECEBIMENTO DE DADOS (POST)
+    # ======================================================
+
     if request.method == "POST":
-        # Converte o corpo da requisição JSON em um dicionário Python.
-        # silent=True evita que um JSON inválido gere uma exceção não tratada.
+
+        # Converte o corpo JSON da requisição em um dicionário Python.
+        # silent=True evita uma exceção quando o JSON recebido é inválido.
         novos_dados = request.get_json(silent=True)
 
-        # A API espera receber um objeto JSON, representado por um dicionário.
+        # Verifica se o conteúdo recebido é um objeto JSON válido.
         if not isinstance(novos_dados, dict):
-            return jsonify({"erro": "Envie um objeto JSON válido."}), 400
 
-        # Executa as verificações de presença, tipo, faixa e coerência dos campos.
+            return jsonify({
+                "erro": "Envie um objeto JSON válido."
+            }), 400
+
+        # Executa todas as validações dos campos recebidos.
         erros = validar_dados(novos_dados)
 
-        # HTTP 400 informa que o pacote recebido não atende ao contrato da API.
-        # Os dados armazenados anteriormente não são substituídos nesse caso.
+        # Rejeita o pacote quando alguma validação falha.
         if erros:
-            return jsonify({"erro": "Dados inválidos.", "detalhes": erros}), 400
 
-        # Copia somente os campos definidos no contrato da API.
-        # Qualquer campo adicional enviado pela ESP32 é ignorado.
+            return jsonify({
+                "erro": "Dados inválidos.",
+                "detalhes": erros
+            }), 400
+
+        # Seleciona somente os campos definidos no contrato da API.
         novos_dados_validos = {
             campo: novos_dados[campo]
             for campo in CAMPOS_OBRIGATORIOS
         }
 
-        # Obtém o tempo monotônico para medir intervalos entre requisições.
-        # Ao contrário do horário civil, esse contador não depende de ajustes
-        # de data e hora do sistema operacional.
+        # Obtém um contador monotônico para medir o intervalo entre requisições.
         instante_atual = time.monotonic()
 
-        # Aplica os filtros de variação à temperatura e à pressão.
-        # Os outros campos permanecem com os valores recebidos e validados.
+        # Aplica os filtros temporais de temperatura e pressão.
         dados_filtrados, avisos_validacao = filtrar_variacoes_temporais(
             novos_dados_validos,
-            instante_atual,
+            instante_atual
         )
 
-        # Substitui o conjunto armazenado pelo pacote já filtrado.
+        # Atualiza o armazenamento com os dados já processados.
         dados = dados_filtrados
 
-        # Registra o horário real de recebimento em UTC e formato ISO 8601.
-        # O JavaScript da dashboard consegue converter esse texto para Date.
+        # Registra o horário de recebimento em UTC e formato ISO 8601.
         ultima_atualizacao = datetime.now(timezone.utc).isoformat()
 
-        # Retorna confirmação, dados processados, avisos e horário ao remetente.
+        # Retorna a confirmação do recebimento e os dados processados.
         return jsonify({
             "mensagem": "Dados recebidos e processados com sucesso.",
             "dados": dados,
             "avisos_validacao": avisos_validacao,
-            "ultima_atualizacao": ultima_atualizacao,
+            "ultima_atualizacao": ultima_atualizacao
         }), 200
 
-    # Para GET, devolve a última medição armazenada sem alterar os dados.
-    # Se a API ainda não recebeu um POST, os valores permanecem None.
+    # ======================================================
+    # CONSULTA DOS DADOS (GET)
+    # ======================================================
+
+    # Retorna a última medição armazenada sem modificar os valores.
     return jsonify({
         **dados,
         "ultima_atualizacao": ultima_atualizacao,
-        "avisos_validacao": avisos_validacao,
+        "avisos_validacao": avisos_validacao
     })
 
 
@@ -486,6 +527,10 @@ def gerenciar_dados():
 # ==========================================================
 
 if __name__ == "__main__":
-    # Inicia o servidor para execução local. O Render utiliza o comando
-    # de inicialização configurado no próprio serviço, não este bloco.
-    app.run(host="0.0.0.0", port=5000, debug=False)
+
+    # Inicia o servidor Flask para execução local.
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False
+    )

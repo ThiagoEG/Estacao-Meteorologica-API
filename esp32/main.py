@@ -38,7 +38,7 @@ from bmp280 import BMP280
 # ==========================================================
 
 # Credenciais de wifi
-WIFI_SSID = ""
+WIFI_SSID = "-"
 WIFI_PASSWORD = ""
 
 
@@ -343,16 +343,16 @@ def verificar_eventos_timer():
 # ==========================================================
 
 def classificar_indicador_ppm(ppm):
-    # Seleciona a faixa correspondente ao valor calculado.
+    # Compara o PPM calculado com os limites equivalentes aos valores ADC definidos.
     if ppm is None:
         return "LEITURA_INVALIDA"
-    elif ppm <= 100:
+    elif ppm <= 234.2:
         return "EXCELENTE"
-    elif ppm <= 200:
+    elif ppm <= 609.1:
         return "BOA"
-    elif ppm <= 500:
+    elif ppm <= 1953.0:
         return "MODERADA"
-    elif ppm <= 1000:
+    elif ppm <= 7041.6:
         return "RUIM"
     else:
         return "PESSIMA"
