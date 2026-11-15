@@ -6,8 +6,8 @@
 // Quantidade máxima de medições mantidas em cada gráfico.
 const LIMITE_PONTOS = 60;
 // Tempo máximo permitido sem receber uma nova medição.
-// Após 5 segundos, a ESP32 será considerada sem atualização.
-const TEMPO_MAXIMO_SEM_DADOS = 5000;
+// Após 10 segundos, a ESP32 será considerada sem atualização.
+const TEMPO_MAXIMO_SEM_DADOS = 10000;
 
 
 // Localização aproximada da estação meteorológica.
@@ -653,58 +653,55 @@ function formatarTempoSemAtualizacao(tempoMS) {
 // VERIFICACAO DO STATUS DA ESTACAO ESP32
 // ======================================================
 
-function atualizarStatusEstacao(ultimaAtualizacao) {
+function atualizarStatusEstacao(ultimaAtualizacao, horarioServidor) {
 
-    // Verifica se a API já recebeu alguma medição.
     if (!ultimaAtualizacao) {
-
         atualizarStatus(
             "erro",
             "API conectada • aguardando primeira leitura da ESP32"
         );
-
         return;
     }
 
-    // Converte o horário recebido da API para uma data.
     const dataUltimaAtualizacao = new Date(ultimaAtualizacao);
+    const dataServidor = new Date(horarioServidor);
 
-    // Verifica se o horário recebido é válido.
     if (Number.isNaN(dataUltimaAtualizacao.getTime())) {
-
         atualizarStatus(
             "erro",
             "API conectada • horário da última leitura inválido"
         );
-
         return;
     }
 
-    // Calcula quanto tempo passou desde a última medição.
+    if (Number.isNaN(dataServidor.getTime())) {
+        atualizarStatus(
+            "erro",
+            "API conectada • não foi possível verificar o horário do servidor"
+        );
+        return;
+    }
+
+    // Compara os dois horários fornecidos pelo servidor,
+    // sem depender do relógio do computador ou celular.
     const tempoMS = Math.max(
         0,
-        Date.now() - dataUltimaAtualizacao.getTime()
+        dataServidor.getTime() - dataUltimaAtualizacao.getTime()
     );
 
-    // Se a medição foi recebida nos últimos 5 segundos,
-    // consideramos que a ESP32 está enviando normalmente.
+    // Considera a ESP32 ativa quando a última medição
+    // foi recebida há no máximo 10 segundos.
     if (tempoMS <= TEMPO_MAXIMO_SEM_DADOS) {
-
         atualizarStatus(
             "ok",
             "ESP32 enviando dados • API conectada"
         );
-
         return;
     }
 
-    // Converte o tempo decorrido para segundos,
-    // minutos, horas ou dias.
     const tempoSemAtualizacao =
         formatarTempoSemAtualizacao(tempoMS);
 
-    // A API continua acessível, mas a estação
-    // não está enviando medições recentes.
     atualizarStatus(
         "erro",
         `API conectada • ESP32 sem atualização há ${tempoSemAtualizacao}`
@@ -740,6 +737,7 @@ async function atualizarDados() {
         }
 
         const dados = await resposta.json();
+        const horarioServidor = resposta.headers.get("Date");
 
 
         // --------------------------------------------------
@@ -805,7 +803,7 @@ async function atualizarDados() {
 // 5. ATUALIZACAO DO STATUS
 // --------------------------------------------------
 
-atualizarStatusEstacao(dados.ultima_atualizacao);
+atualizarStatusEstacao(dados.ultima_atualizacao,horarioServidor);
 
     } catch (erro) {
 
