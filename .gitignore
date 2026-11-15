@@ -1,6 +1,18 @@
-@"
+# Ambiente virtual Python
 .venv/
+
+# Arquivos gerados pelo Python
 __pycache__/
-*.pyc
+*.py[cod]
+
+# Variáveis de ambiente
 .env
-"@ | Set-Content .gitignore
+.env.*
+!.env.example
+
+# Arquivos temporários
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
